@@ -1,0 +1,29 @@
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\bin\Debug\RawRead.exe.config
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\obj\Debug\RawRead.csprojResolveAssemblyReference.cache
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\bin\Debug\RawRead.exe
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\bin\Debug\RawRead.pdb
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\obj\Debug\Interop.MSFileReaderLib.dll
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\obj\Debug\RawRead.csproj.ResolveComReference.cache
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\obj\Debug\RawRead.exe
+C:\Users\animeshs\SkyDrive\VS2013\RawRead\RawRead\obj\Debug\RawRead.pdb
+C:\Users\animeshs\Source\Repos\PerseusML\RawRead\RawRead\bin\Debug\RawRead.exe.config
+C:\Users\animeshs\Source\Repos\PerseusML\RawRead\RawRead\obj\Debug\Interop.MSFileReaderLib.dll
+C:\Users\animeshs\Source\Repos\PerseusML\RawRead\RawRead\obj\Debug\RawRead.csproj.ResolveComReference.cache
+C:\Users\animeshs\Source\Repos\PerseusML\RawRead\RawRead\obj\Debug\RawRead.exe
+C:\Users\animeshs\Source\Repos\PerseusML\RawRead\RawRead\obj\Debug\RawRead.pdb
+L:\Results\Ani\vs\repo\RawRead\RawRead\bin\Debug\RawRead.exe.config
+L:\Results\Ani\vs\repo\RawRead\RawRead\obj\Debug\Interop.MSFileReaderLib.dll
+L:\Results\Ani\vs\repo\RawRead\RawRead\obj\Debug\RawRead.csproj.ResolveComReference.cache
+L:\Results\Ani\vs\repo\RawRead\RawRead\obj\Debug\RawRead.exe
+L:\Results\Ani\vs\repo\RawRead\RawRead\obj\Debug\RawRead.pdb
+L:\Results\Ani\vs\repo\RawRead\RawRead\bin\Debug\RawRead.exe
+L:\Results\Ani\vs\repo\RawRead\RawRead\bin\Debug\RawRead.pdb
+L:\Results\Ani\vs\repo\RawRead\RawRead\obj\Debug\RawRead.csprojResolveAssemblyReference.cache
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\bin\Debug\RawRead.exe.config
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\obj\Debug\Interop.MSFileReaderLib.dll
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\obj\Debug\RawRead.csproj.ResolveComReference.cache
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\obj\Debug\RawRead.exe
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\obj\Debug\RawRead.pdb
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\bin\Debug\RawRead.exe
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\bin\Debug\RawRead.pdb
+C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\obj\Debug\RawRead.csprojResolveAssemblyReference.cache
