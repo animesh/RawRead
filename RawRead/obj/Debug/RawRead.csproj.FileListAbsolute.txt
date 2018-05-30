@@ -27,10 +27,18 @@ C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\obj\Debug\RawRead.pdb
 C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\bin\Debug\RawRead.exe
 C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\bin\Debug\RawRead.pdb
 C:\Users\animeshs\Google Drive\VS\RawRead\RawRead\obj\Debug\RawRead.csprojResolveAssemblyReference.cache
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.csproj.CoreCompileInputs.cache
 C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\RawRead.exe.config
-C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\Interop.MSFileReaderLib.dll
-C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.csproj.ResolveComReference.cache
-C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.exe
-C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.pdb
 C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\RawRead.exe
 C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\RawRead.pdb
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.BackgroundSubtraction.dll
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.Data.dll
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.MassPrecisionEstimator.dll
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.RawFileReader.dll
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.BackgroundSubtraction.xml
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.Data.xml
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.MassPrecisionEstimator.xml
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore.RawFileReader.xml
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.csproj.CopyComplete
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.exe
+C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.pdb
