@@ -42,3 +42,5 @@ C:\Users\animeshs\Source\Repos\RawRead\RawRead\bin\Debug\ThermoFisher.CommonCore
 C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.csproj.CopyComplete
 C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.exe
 C:\Users\animeshs\Source\Repos\RawRead\RawRead\obj\Debug\RawRead.pdb
+C:\Users\animeshs\source\repos\RawRead\RawRead\bin\Debug\MathNet.Numerics.dll
+C:\Users\animeshs\source\repos\RawRead\RawRead\bin\Debug\MathNet.Numerics.xml
