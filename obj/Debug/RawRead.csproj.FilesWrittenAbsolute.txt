@@ -1,0 +1,5 @@
+/home/animeshs/RawRead/RawRead/obj/Debug/.NETFramework,Version=v4.5.1.AssemblyAttribute.cs
+/home/animeshs/RawRead/RawRead/obj/Debug/RawRead.exe
+/home/animeshs/RawRead/RawRead/obj/Debug/RawRead.pdb
+/home/animeshs/RawRead/RawRead/bin/Debug/ThermoFisher.CommonCore.Data.dll
+/home/animeshs/RawRead/RawRead/bin/Debug/ThermoFisher.CommonCore.RawFileReader.dll
