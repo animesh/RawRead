@@ -29,8 +29,8 @@
             double tic = 0;
             double maxIntSum = 0;
             Complex[] samples = new Complex[nms];
-            StreamWriter writeMS1 = new StreamWriter("ms.txt");
-            StreamWriter writeMS2 = new StreamWriter("msms.txt");
+            StreamWriter writeMS1 = new StreamWriter("MS.tab");
+            StreamWriter writeMS2 = new StreamWriter("MSMS.tab");
             for (int i = fms; i < nms; i++){
                 var centroidStream = rawFile.GetCentroidStream(i, false);
                 double time = rawFile.RetentionTimeFromScanNumber(i);
@@ -39,8 +39,8 @@
                 double maxInt = 0;
                 for (int j = 0; j < centroidStream.Length; j++){
                     if (centroidStream.Charges[j] >= double.Parse(args[2]) && centroidStream.Intensities[j] >= double.Parse(args[1])){
-                        if (title.Contains("Full ms ")) { writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}", i, title, centroidStream.Length, j, centroidStream.Masses[j], centroidStream.Intensities[j], centroidStream.Charges[j]); }
-                        if (title.Contains(" ms2 ")) { writeMS2.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}", i, title, centroidStream.Length, j, centroidStream.Masses[j], centroidStream.Intensities[j], centroidStream.Charges[j]); }
+                        if (title.Contains("Full ms ")&&centroidStream.Charges[j]>0) { writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, title, centroidStream.Length, j, centroidStream.Masses[j], centroidStream.Intensities[j], centroidStream.Charges[j],centroidStream.Masses[j]*centroidStream.Charges[j]-centroidStream.Charges[j]); }
+                        if (title.Contains(" ms2 ")&&centroidStream.Charges[j]>0) { writeMS2.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, title, centroidStream.Length, j, centroidStream.Masses[j], centroidStream.Intensities[j], centroidStream.Charges[j],centroidStream.Masses[j]*centroidStream.Charges[j]-centroidStream.Charges[j]); }
                         if (centroidStream.Intensities[j] >= maxInt) { maxInt = centroidStream.Intensities[j]; maxMass = centroidStream.Masses[j]; maxIntSum += maxInt; }
                         tic += centroidStream.Intensities[j]; tms++;
                     }
