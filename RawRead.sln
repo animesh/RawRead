@@ -1,22 +1,25 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Express 2013 for Windows Desktop
-VisualStudioVersion = 12.0.21005.1
+# Visual Studio 15
+VisualStudioVersion = 15.0.27703.2042
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RawRead", "RawRead\RawRead.csproj", "{EC23DD9A-BEF1-43D0-BAC2-AE541DBFB8B6}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RawRead", "RawRead.csproj", "{BCF3EEA2-6D09-450F-B4F0-172422138E27}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|Any CPU = Debug|Any CPU
-		Release|Any CPU = Release|Any CPU
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{EC23DD9A-BEF1-43D0-BAC2-AE541DBFB8B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{EC23DD9A-BEF1-43D0-BAC2-AE541DBFB8B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{EC23DD9A-BEF1-43D0-BAC2-AE541DBFB8B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{EC23DD9A-BEF1-43D0-BAC2-AE541DBFB8B6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Debug|x86.ActiveCfg = Debug|x86
+		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Debug|x86.Build.0 = Debug|x86
+		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Release|x86.ActiveCfg = Release|x86
+		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {130162FB-91C2-4320-B567-6D5CB6866C34}
 	EndGlobalSection
 EndGlobal
