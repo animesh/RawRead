@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.27703.2042
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RawRead", "RawRead.csproj", "{BCF3EEA2-6D09-450F-B4F0-172422138E27}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RawRead", "RawRead.csproj", "{142A34AD-B3ED-4986-AAD1-02E5FBDBBFB7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,15 +11,15 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Debug|x86.ActiveCfg = Debug|x86
-		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Debug|x86.Build.0 = Debug|x86
-		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Release|x86.ActiveCfg = Release|x86
-		{BCF3EEA2-6D09-450F-B4F0-172422138E27}.Release|x86.Build.0 = Release|x86
+		{142A34AD-B3ED-4986-AAD1-02E5FBDBBFB7}.Debug|x86.ActiveCfg = Debug|x86
+		{142A34AD-B3ED-4986-AAD1-02E5FBDBBFB7}.Debug|x86.Build.0 = Debug|x86
+		{142A34AD-B3ED-4986-AAD1-02E5FBDBBFB7}.Release|x86.ActiveCfg = Release|x86
+		{142A34AD-B3ED-4986-AAD1-02E5FBDBBFB7}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {130162FB-91C2-4320-B567-6D5CB6866C34}
+		SolutionGuid = {80F62024-EB9A-4F83-8FD2-18EDFE8A6060}
 	EndGlobalSection
 EndGlobal

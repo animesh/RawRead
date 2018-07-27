@@ -2,7 +2,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
-    <ProjectGuid>{BCF3EEA2-6D09-450F-B4F0-172422138E27}</ProjectGuid>
+    <ProjectGuid>{142A34AD-B3ED-4986-AAD1-02E5FBDBBFB7}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <NoStandardLibraries>false</NoStandardLibraries>
     <AssemblyName>RawRead</AssemblyName>
@@ -10,21 +10,6 @@
     <TargetFrameworkProfile>
     </TargetFrameworkProfile>
     <FileAlignment>512</FileAlignment>
-    <PublishUrl>publish\</PublishUrl>
-    <Install>true</Install>
-    <InstallFrom>Disk</InstallFrom>
-    <UpdateEnabled>false</UpdateEnabled>
-    <UpdateMode>Foreground</UpdateMode>
-    <UpdateInterval>7</UpdateInterval>
-    <UpdateIntervalUnits>Days</UpdateIntervalUnits>
-    <UpdatePeriodically>false</UpdatePeriodically>
-    <UpdateRequired>false</UpdateRequired>
-    <MapFileExtensions>true</MapFileExtensions>
-    <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
-    <IsWebBootstrapper>false</IsWebBootstrapper>
-    <UseApplicationTrust>false</UseApplicationTrust>
-    <BootstrapperEnabled>true</BootstrapperEnabled>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <DebugSymbols>true</DebugSymbols>
@@ -84,7 +69,20 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <None Include=".gitattributes" />
+    <None Include=".gitignore" />
+    <None Include="171010_Ip_Hela_ugi.raw.intensity0.charge0.MGF" />
+    <None Include="App.config" />
+    <None Include="RawRead.exe.config" />
+    <None Include="Readme.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="171010_Ip_Hela_ugi.raw" />
+    <Content Include="171010_Ip_Hela_ugi.raw.intensity0.charge0.FFT.txt" />
+    <Content Include="171010_Ip_Hela_ugi.raw.intensity0.charge0.MS.txt" />
+    <Content Include="171010_Ip_Hela_ugi.raw.intensity0.charge0.MZ.txt" />
     <Content Include="MathNet.Numerics.dll" />
+    <Content Include="RawRead.pdb" />
     <Content Include="System.Numerics.dll" />
     <Content Include="ThermoFisher.CommonCore.BackgroundSubtraction.dll" />
     <Content Include="ThermoFisher.CommonCore.Data.dll" />
@@ -93,45 +91,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="RawRead.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include=".git\config" />
-    <None Include=".git\description" />
-    <None Include=".git\HEAD" />
-    <None Include=".git\hooks\applypatch-msg.sample" />
-    <None Include=".git\hooks\commit-msg.sample" />
-    <None Include=".git\hooks\post-update.sample" />
-    <None Include=".git\hooks\pre-applypatch.sample" />
-    <None Include=".git\hooks\pre-commit.sample" />
-    <None Include=".git\hooks\pre-push.sample" />
-    <None Include=".git\hooks\pre-rebase.sample" />
-    <None Include=".git\hooks\prepare-commit-msg.sample" />
-    <None Include=".git\hooks\update.sample" />
-    <None Include=".git\index" />
-    <None Include=".git\info\exclude" />
-    <None Include=".git\logs\HEAD" />
-    <None Include=".git\logs\refs\heads\master" />
-    <None Include=".git\logs\refs\remotes\origin\HEAD" />
-    <None Include=".git\objects\pack\pack-0001ca81e6809586b9cdc2ce6b3977cbb4f31060.idx" />
-    <None Include=".git\objects\pack\pack-0001ca81e6809586b9cdc2ce6b3977cbb4f31060.pack" />
-    <None Include=".git\packed-refs" />
-    <None Include=".git\refs\heads\master" />
-    <None Include=".git\refs\remotes\origin\HEAD" />
-    <None Include=".vs\RawRead\v15\.suo" />
-    <None Include="app.config" />
-    <None Include="Readme.md" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include=".git\branches\" />
-    <Folder Include=".git\objects\info\" />
-    <Folder Include=".git\refs\tags\" />
-  </ItemGroup>
-  <ItemGroup>
-    <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">
-      <Visible>False</Visible>
-      <ProductName>.NET Framework 3.5 SP1</ProductName>
-      <Install>false</Install>
-    </BootstrapperPackage>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSHARP.Targets" />
   <ProjectExtensions>

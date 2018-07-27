@@ -5,3 +5,12 @@ C:\Users\animeshs\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.exe
 C:\Users\animeshs\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.pdb
 C:\Users\animeshs\OneDrive - NTNU\RawRead\RawRead.exe
 C:\Users\animeshs\OneDrive - NTNU\RawRead\RawRead.pdb
+C:\Users\animeshs\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.csprojAssemblyReference.cache
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.csprojAssemblyReference.cache
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.csproj.CoreCompileInputs.cache
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.csproj.CopyComplete
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\RawRead.exe.config
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.exe
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\obj\x86\Debug\RawRead.pdb
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\RawRead.exe
+C:\Users\animeshs\OneDrive - NTNU\OneDrive - NTNU\RawRead\RawRead.pdb
