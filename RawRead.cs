@@ -1,7 +1,7 @@
-﻿//released under GPL version 2 or later: sharma.animesh@gmail.com 
+﻿//released under GPL version 2 or later: sharma.animesh@gmail.com
 //install mono and compile: mcs RawRead.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll
 //run: mono RawRead.exe <ThermoOrbitrapRawfileName> <intensityThreshold>(optional) <chargeThreshold>(optional)
-
+//windows csc.exe with dotnet
 namespace RawRead
 {
     using ThermoFisher.CommonCore.RawFileReader;//RawFileReader from Planet Orbitrap http://planetorbitrap.com/rawfilereader
@@ -50,7 +50,7 @@ namespace RawRead
                 writeMZ.WriteLine("Mass\tmmu\tppm\t");
                 foreach (var result in listResults){writeMZ.WriteLine("{0:F5}\t{1:F3}\t{2:F2}",result.Mass, result.MassAccuracyInMmu, result.MassAccuracyInPpm);}
             }
-            // Get the chromatogram from the RAW file. 
+            // Get the chromatogram from the RAW file.
             ChromatogramTraceSettings settings = new ChromatogramTraceSettings(TraceType.BasePeak);
             var data = rawFile.GetChromatogramData(new IChromatogramSettings[] { settings }, fMS, nMS);
             var trace = ChromatogramSignal.FromChromatogramData(data);
@@ -81,7 +81,8 @@ namespace RawRead
                 {
                     //var trailerFields = rawFile.GetTrailerExtraHeaderInformation();
                     //var scanTrailer = rawFile.GetTrailerExtraInformation(i);
-                    charge = rawFile.GetTrailerExtraInformation(i).Values[6];
+                    if(rawFile.GetInstrumentData().SerialNumber.Contains("Exactive")){charge = rawFile.GetTrailerExtraInformation(i).Values[7];}
+                    else{charge = rawFile.GetTrailerExtraInformation(i).Values[6];}
                     writeMS2.WriteLine("BEGIN IONS\nTITLE={0}\t{3}\tSCANS={2}\nRTINSECONDS={1}\nPEPMASS={6}\t{4}\t{5}\nCHARGE={7}+", i, time * 60, title, segmentedScan.Positions.Length, scanStatistics.BasePeakMass, scanStatistics.BasePeakIntensity, rawFile.GetScanEventForScanNumber(i).GetReaction(0).PrecursorMass,charge);
                     for (int j = 0; j < segmentedScan.Positions.Length; j++) { writeMS2.WriteLine("{0} {1}", segmentedScan.Positions[j], segmentedScan.Intensities[j]); }
                     writeMS2.WriteLine("END IONS\n");
