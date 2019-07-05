@@ -1,4 +1,65 @@
 
+
+### Real-time comet search
+
+[Full-featured, real-time database searching platform enables fast and accurate multiplexed quantitative proteomics](https://www.biorxiv.org/content/10.1101/668533v1)
+
+* Browse the trunk code at revision 1296 as suggested by Jimmy in the [forum](https://groups.google.com/forum/?utm_medium=email&utm_source=footer#!msg/comet-ms/VvWqGPTmRCg/RFV6T5IoCAAJ) or download as [zip](https://sourceforge.net/code-snapshots/svn/c/co/comet-ms/code/comet-ms-code-r1296-trunk-comet-ms.zip)
+
+* Unzip/browse and generate the CometWrapper.dll mentioned in [release-note](http://comet-ms.sourceforge.net/release/release_201901/) by compiling the folder RealtimeSearch within the distribution [note: had to compile the CometWrapper and MSToolkit first though. Also had to add the LIB to MSToolkit and make sure it compiled to x64 in case of visual studio as compiler]
+
+* Binary is hopefully generate in RealtimeSearch/bin/Debug folder which can be directly used to search a raw file against an indexed database
+
+```bash
+./RealtimeSearch/bin/Debug/RealtimeSearch.exe 171010_Ip_Hela_ugi.raw crap.fasta.idx
+
+ RealTimeSearch
+
+ input: 171010_Ip_Hela_ugi.raw
+pass 1  600     2       595.3168        1189.6263       K.KKEDALNDTR.D  P17697 SWI      0.28    3       1/18
+pass 1  800     2       479.2978        957.5883        K.RTLKVQGR.D    Q3T052 TRE      0.12    2       2/14
+0       0
+1       0
+2       159
+3       61
+4       6
+5       0
+6       1
+7       0
+8       1
+9       0
+10      0
+11      0
+12      0
+13      0
+14      0
+15      0
+16      0
+17      0
+18      0
+19      0
+20      0
+21      0
+22      0
+23      0
+24      0
+25      0
+26      0
+27      0
+28      0
+29      0
+
+ Done.
+
+```
+
+**fasta.idx** is generated via comet.exe which also needs to be compile and the fasta file needs to be provided via the comet.param* file; crap.fasta mentioned in comet.param is from [cRAP](https://www.thegpm.org/crap/) and [MaxQuant](https://www.maxquant.org/)
+
+```bash
+./comet.exe -i
+```
+
+
 # Prerequisites
 * [Mono](http://www.mono-project.com/download/stable/#download-lin) 
 * RawFileReader from [Planet Orbitrap](http://planetorbitrap.com/rawfilereader) or [email](https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=jim.Shofstahl@thermofisher.com&su=Access%20to%20RawFileReader%20from%20Planet%20Orbitrap)  jim.shofstahl@thermofisher.com with Subject "Access to RawFileReader"

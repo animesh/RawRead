@@ -36,6 +36,10 @@
     <RootNamespace>RawRead</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="CometWrapper, Version=1.0.7124.35538, Culture=neutral, processorArchitecture=AMD64">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\CometWrapper.dll</HintPath>
+    </Reference>
     <Reference Include="MathNet.Numerics, Version=4.5.1.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>.\MathNet.Numerics.dll</HintPath>

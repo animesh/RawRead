@@ -13,6 +13,7 @@ namespace RawRead
     using System.IO;
     using System.Collections.Generic;
     using ThermoFisher.CommonCore.Data.Interfaces;
+    using CometWrapper;
 
     internal class RawRead2PeakList
     {
@@ -22,6 +23,13 @@ namespace RawRead
             var rawFile = RawFileReaderAdapter.FileFactory(args[0]);
             if(!rawFile.IsOpen) { Console.WriteLine("Raw file {1} is already Open, probably not finish writing", rawFile.FileError, args[0]); return; }
             if(rawFile.IsError) { Console.WriteLine("Error opening {1}, probably not proper orbitrap raw file? Tested only on Elite, QE and HF...", rawFile.FileError, args[0]); return; }
+            CometSearchManagerWrapper SearchMgr = new CometWrapper.CometSearchManagerWrapper();
+            SearchSettings searchParams = new SearchSettings();
+            string rawFileName = args[0];
+            string sDB = args[1];
+            double dPeptideMassLow = 0;
+            double dPeptideMassHigh = 0;
+            searchParams.ConfigureInputSettings(SearchMgr, ref dPeptideMassLow, ref dPeptideMassHigh, ref sDB);
             double insThr = 0;
             int chgThr = 0;
             if (args.Length == 2) { insThr = double.Parse(args[1]); }
