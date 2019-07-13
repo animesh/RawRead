@@ -1,8 +1,38 @@
+# Prerequisites
+
+RawFileReader from [Planet Orbitrap](http://planetorbitrap.com/rawfilereader) or [email](https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=jim.Shofstahl@thermofisher.com&su=Access%20to%20RawFileReader%20from%20Planet%20Orbitrap)  jim.shofstahl@thermofisher.com with Subject "Access to RawFileReader"
 
 
-### Real-time comet search
+## Compile
+* [Mono](http://www.mono-project.com/download/stable/#download-lin) 
+* or [Dotnet] https://docs.microsoft.com/en-in/dotnet/csharp/roslyn-sdk/ 
 
-[Full-featured, real-time database searching platform enables fast and accurate multiplexed quantitative proteomics](https://www.biorxiv.org/content/10.1101/668533v1)
+```bash
+mcs RawRead.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll /reference:CometWrapper.dll
+```
+
+OR 
+
+```bash
+c:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild RawRead.csproj
+```
+
+## Index the fasta file
+*fasta.idx* (above crap.fasta.idx) is generated via comet.exe which also needs to be [compiled](https://sourceforge.net/code-snapshots/svn/c/co/comet-ms/code/comet-ms-code-r1296-trunk-comet-ms.zip) and the fasta file needs to be provided via the comet.param* file; crap.fasta mentioned in comet.param in this is compiled from [cRAP](https://www.thegpm.org/crap/) and [MaxQuant](https://www.maxquant.org/)
+
+```bash
+./comet.exe -i
+```
+
+## Usage
+
+```bash
+RawRead.exe 171010_Ip_Hela_ugi.raw crap.fasta.idx
+```
+
+### Real-time comet search 
+
+Source: [Full-featured, real-time database searching platform enables fast and accurate multiplexed quantitative proteomics](https://www.biorxiv.org/content/10.1101/668533v1)
 
 * Browse the trunk code at revision 1296 as suggested by Jimmy in the [forum](https://groups.google.com/forum/?utm_medium=email&utm_source=footer#!msg/comet-ms/VvWqGPTmRCg/RFV6T5IoCAAJ) or download as [zip](https://sourceforge.net/code-snapshots/svn/c/co/comet-ms/code/comet-ms-code-r1296-trunk-comet-ms.zip)
 
@@ -53,41 +83,6 @@ pass 1  800     2       479.2978        957.5883        K.RTLKVQGR.D    Q3T052 T
 
 ```
 
-**fasta.idx** is generated via comet.exe which also needs to be compile and the fasta file needs to be provided via the comet.param* file; crap.fasta mentioned in comet.param is from [cRAP](https://www.thegpm.org/crap/) and [MaxQuant](https://www.maxquant.org/)
-
-```bash
-./comet.exe -i
-```
-
-
-# Prerequisites
-* [Mono](http://www.mono-project.com/download/stable/#download-lin) 
-* RawFileReader from [Planet Orbitrap](http://planetorbitrap.com/rawfilereader) or [email](https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=jim.Shofstahl@thermofisher.com&su=Access%20to%20RawFileReader%20from%20Planet%20Orbitrap)  jim.shofstahl@thermofisher.com with Subject "Access to RawFileReader"
-
-## Compile
-
-### Linux
-
-```bash
-mcs RawRead.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll
-```
-
-
-#### Windows can also use dotnet cmd "csc"
-
-```bash
-c:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe RawRead.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll
-```
-
-## Usage
-```bash
-mono RawRead.exe <ThermoOrbitrapRawfileName> <intensityThreshold>(optional) <chargeThreshold>(optional)
-```
-
-##### Windows compiled via dotnet call directly
-```bash
-RawRead.exe <ThermoOrbitrapRawfileName> <intensityThreshold>(optional) <chargeThreshold>(optional)
-```
 
 
 ### Example
