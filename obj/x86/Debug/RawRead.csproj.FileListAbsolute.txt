@@ -22,3 +22,10 @@ C:\Users\animeshs\Source\Repos\RawRead\obj\x86\Debug\RawRead.pdb
 C:\Users\animeshs\Source\Repos\RawRead\RawRead.exe
 C:\Users\animeshs\Source\Repos\RawRead\RawRead.pdb
 C:\Users\animeshs\Source\Repos\RawRead\obj\x86\Debug\RawRead.csprojAssemblyReference.cache
+F:\GD\RawRead\obj\x86\Debug\RawRead.csprojAssemblyReference.cache
+F:\GD\RawRead\obj\x86\Debug\RawRead.csproj.CopyComplete
+F:\GD\RawRead\RawRead.exe.config
+F:\GD\RawRead\obj\x86\Debug\RawRead.exe
+F:\GD\RawRead\obj\x86\Debug\RawRead.pdb
+F:\GD\RawRead\RawRead.exe
+F:\GD\RawRead\RawRead.pdb
