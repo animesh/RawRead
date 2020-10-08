@@ -24,9 +24,9 @@ namespace RawRead
             if(args.Length > 0){ rawFile = RawFileReaderAdapter.FileFactory(args[0]);}
             if(!rawFile.IsOpen) { Console.WriteLine("Raw file {1} is already Open, probably not finish writing", rawFile.FileError, args[0]); return; }
             if(rawFile.IsError) { Console.WriteLine("Error opening {1}, probably not proper orbitrap raw file? This program is tested only on Elite, QE and HF orbitrap raw files...", rawFile.FileError, args[0]); return; }
-            int insThr = 1000;
-            if (args.Length == 2) { insThr = int.Parse(args[1]); }
-            int errTol = 3;
+            long insThr = 1000;
+            if (args.Length == 2) { insThr = long.Parse(args[1]); }
+            int errTol = 3; // chk 10ppm [445.11612-445.12502]
             if (args.Length == 3) { errTol = int.Parse(args[2]); }
             rawFile.SelectInstrument(Device.MS, 1);
             int fMS = rawFile.RunHeaderEx.FirstSpectrum;
@@ -37,38 +37,38 @@ namespace RawRead
             double sTime = rawFile.RunHeaderEx.StartTime;
             double eTime = rawFile.RunHeaderEx.EndTime;
             Console.WriteLine("#filename:\t" + rawFile.FileName + "\n" + "#prescan(s):\t" + nMS + "\n" + "#RT length:\t" + (eTime - sTime) + "\n" + "#version:\t" + rawFile.FileHeader.Revision + "\n" + "#create date:\t" + rawFile.FileHeader.CreationDate + "\n" + "#machine:\t" + rawFile.FileHeader.WhoCreatedId + "\n" + "#serial:\t" + rawFile.GetInstrumentData().SerialNumber + "\n" + "#writer:\t" + rawFile.GetInstrumentData().SoftwareVersion + "\n" + "#resolution:\t" + rawFile.RunHeaderEx.MassResolution + "\n" + "#massrange:\t" + rawFile.RunHeaderEx.LowMass + "-" + rawFile.RunHeaderEx.HighMass + "\n" + "#sample:\t" + rawFile.SampleInformation.Vial + "\n" + "#volume:\t" + rawFile.SampleInformation.SampleVolume + "\n" + "#injection:\t" + rawFile.SampleInformation.InjectionVolume + "\n" + "#dilution:\t" + rawFile.SampleInformation.DilutionFactor + "\n" + "#filter:\t" + fFilter.ToString() + "\n" + "#filterN:\t" + nFilter.ToString());
-            int tms = 0;
-            int tic = 0;
-            int maxIntSum = 0;
+            long tms = 0;
+            long tic = 0;
+            long maxIntSum = 0;
 //            Complex[] samples = new Complex[nMS];
-            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".profile.intensity" + insThr +  ".MS.txt");
+            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MS.txt");
             writeMS1.WriteLine("Scan\tContainScans\tBasePeak\tMaxIntensity\tRT\tMostIntenseMass2Charge\tCumulativeIntensity\tTotalScans");
-            Dictionary<string, int> intMZ1 = new Dictionary<string, int>(); 
+            Dictionary<string, long> intMZ1 = new Dictionary<string, long>(); 
             for (int i = fMS; i <= nMS; i++)
             {
                 double time = rawFile.RetentionTimeFromScanNumber(i);
                 string title = string.Join(Environment.NewLine, rawFile.GetScanEventForScanNumber(i));
                 var scanStatistics = rawFile.GetScanStatsForScanNumber(i);
                 var centroidStream = rawFile.GetCentroidStream(i, false);
-                int maxInt = 0;
+                long maxInt = 0;
                 int k = 0;
                 if (title.Contains(" ms ") && scanStatistics.BasePeakIntensity>insThr)
                 {
                     for (int j = 0; j < centroidStream.Length; j++)
                     {
-                        int ic= (int)centroidStream.Intensities[j];
+                        long ic = (long)centroidStream.Intensities[j];
                         if (ic > insThr)
                         {
                             string MZ1R = Math.Round((Double)centroidStream.Masses[j], errTol, MidpointRounding.AwayFromZero).ToString();
                             tic += ic;
                             tms++;
+                            if (intMZ1.ContainsKey(MZ1R)) { intMZ1[MZ1R] += ic; }
+                            else { intMZ1.Add(MZ1R, ic); }
                             if (ic >= maxInt) { maxInt = ic; maxIntSum += maxInt; k = j; }
-                            if (!intMZ1.ContainsKey(MZ1R)) { intMZ1.Add(MZ1R, ic); }
-                            else { intMZ1[MZ1R] += ic; }
                         }
-//                      writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}", tms, time, i, j, centroidStream.Masses[j], centroidStream.Intensities[j], scanStatistics.BasePeakMass, maxInt, tic, maxIntSum);
+                        //                      writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}", tms, time, i, j, centroidStream.Masses[j], centroidStream.Intensities[j], scanStatistics.BasePeakMass, maxInt, tic, maxIntSum);
                     }
-                    if (i%10==0) { Console.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, time, centroidStream.Masses[k], maxInt, maxIntSum, tms); }
+                    if (i%100==0) { Console.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, centroidStream.Masses[k], maxInt, time, maxIntSum, tms); }
                     writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, maxInt, time, centroidStream.Masses[k], maxIntSum, tms);
                     //                    samples[i-1] = new Complex(scanStatistics.BasePeakMass,time);
                     //                if(i>1&&Math.Ceiling(samples[i-1].Real)<samples[i-2].Real){Console.WriteLine("{0}\t{1}\t{2}\t{3}", i, scanStatistics.BasePeakMass, maxIntSum,samples[i-2].Real-samples[i-1].Real);}
@@ -87,7 +87,7 @@ namespace RawRead
             */
             Console.WriteLine("#TIC>={0}intensity:\t{1}\t{2}", insThr, tms, tic);
             writeMS1.Close();
-            StreamWriter writeMZ1R = new StreamWriter(rawFile.FileName + ".profile.intensity" + insThr + ".MZ1R.txt");
+            StreamWriter writeMZ1R = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MZ1R.txt");
             writeMZ1R.WriteLine("MZ\tsumIntensity");
             foreach (var element in intMZ1.OrderByDescending(x => x.Value)) { writeMZ1R.WriteLine("{0}\t{1}",element.Key,element.Value); }
             writeMZ1R.Close();
