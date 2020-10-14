@@ -12,7 +12,12 @@ namespace RawRead
     using System.IO;
     using System.Collections.Generic;
     using System.Linq;
-
+    //Register-PackageSource -provider NuGet -name nugetRepository -location https://www.nuget.org/api/v2
+    using Microsoft.ML.Probabilistic;
+    using Microsoft.ML.Probabilistic.Distributions;
+    using Microsoft.ML.Probabilistic.Models;
+    using Microsoft.ML.Probabilistic.Math;
+    using Range = Microsoft.ML.Probabilistic.Models.Range;
     internal class RawRead2PeakList
     {
         static void Main(string[] args)
@@ -26,7 +31,7 @@ namespace RawRead
             if(rawFile.IsError) { Console.WriteLine("Error opening {1}, probably not proper orbitrap raw file? This program is tested only on Elite, QE and HF orbitrap raw files...", rawFile.FileError, args[0]); return; }
             long insThr = 1000;
             if (args.Length == 2) { insThr = long.Parse(args[1]); }
-            int errTol = 3; // chk 10ppm [445.11612-445.12502]
+            int errTol = 3; // 445.12057 10ppm[445.11612-445.12502]
             if (args.Length == 3) { errTol = int.Parse(args[2]); }
             rawFile.SelectInstrument(Device.MS, 1);
             int fMS = rawFile.RunHeaderEx.FirstSpectrum;
@@ -89,9 +94,97 @@ namespace RawRead
             writeMS1.Close();
             StreamWriter writeMZ1R = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MZ1R.txt");
             writeMZ1R.WriteLine("MZ\tsumIntensity");
-            foreach (var element in intMZ1.OrderByDescending(x => x.Value)) { writeMZ1R.WriteLine("{0}\t{1}",element.Key,element.Value); }
+            foreach (var element in intMZ1.OrderByDescending(y => y.Value)) { writeMZ1R.WriteLine("{0}\t{1}",element.Key,element.Value); }
             writeMZ1R.Close();
             rawFile.Dispose();
+                        var winnerData = new[] { 0, 0, 0, 1, 3, 4 };
+            var loserData = new[] { 1, 3, 4, 2, 1, 2 };
+
+            // Define the statistical model as a probabilistic program
+            var game = new Range(winnerData.Length);
+            var player = new Range(winnerData.Concat(loserData).Max() + 1);
+            var playerSkills = Variable.Array<double>(player);
+            playerSkills[player] = Variable.GaussianFromMeanAndVariance(6, 9).ForEach(player);
+
+            var winners = Variable.Array<int>(game);
+            var losers = Variable.Array<int>(game);
+
+            using (Variable.ForEach(game))
+            {
+                // The player performance is a noisy version of their skill
+                var winnerPerformance = Variable.GaussianFromMeanAndVariance(playerSkills[winners[game]], 1.0);
+                var loserPerformance = Variable.GaussianFromMeanAndVariance(playerSkills[losers[game]], 1.0);
+
+                // The winner performed better in this game
+                Variable.ConstrainTrue(winnerPerformance > loserPerformance);
+            }
+
+            // Attach the data to the model
+            winners.ObservedValue = winnerData;
+            losers.ObservedValue = loserData;
+
+            // Run inference
+            var inferenceEngine = new InferenceEngine();
+            var inferredSkills = inferenceEngine.Infer<Gaussian[]>(playerSkills);
+
+            // The inferred skills are uncertain, which is captured in their variance
+            var orderedPlayerSkills = inferredSkills
+               .Select((s, i) => new { Player = i, Skill = s })
+               .OrderByDescending(ps => ps.Skill.GetMean());
+
+            foreach (var playerSkill in orderedPlayerSkills)
+            {
+                Console.WriteLine($"Player {playerSkill.Player} skill: {playerSkill.Skill}");
+            }
+
+            // https://github.com/dotnet/infer/blob/master/src/Tutorials/LearningAGaussianWithRanges.cs
+            double[] data = new double[100];
+            for (int i = 0; i < data.Length; i++)
+            {
+                data[i] = Rand.Normal(0, 1);
+            }
+
+            /* https://github.com/dotnet/infer/blob/master/src/Tutorials/LearningAGaussian.cs
+            // Create mean and precision random variables
+            Variable<double> mean = Variable.GaussianFromMeanAndVariance(0, 100).Named("mean");
+            Variable<double> precision = Variable.GammaFromShapeAndScale(1, 1).Named("precision");
+
+            Range dataRange = new Range(data.Length).Named("n");
+            VariableArray<double> x = Variable.Array<double>(dataRange).Named("x");
+            x[dataRange] = Variable.GaussianFromMeanAndPrecision(mean, precision).ForEach(dataRange);
+            x.ObservedValue = data;
+
+            InferenceEngine engine = new InferenceEngine();
+
+            // Retrieve the posterior distributions
+            Console.WriteLine("mean=" + data.ToString());
+            Console.WriteLine("prec=" + x);
+            Console.WriteLine("mean=" + engine.Infer(mean));
+            Console.WriteLine("prec=" + engine.Infer(precision));
+                        // Sample data from standard Gaussian
+            double[] data = new double[100];
+            for (int i = 0; i < data.Length; i++)
+            {
+                data[i] = Rand.Normal(0, 1);
+            }
+
+            // Create mean and precision random variables
+            Variable<double> mean = Variable.GaussianFromMeanAndVariance(0, 100).Named("mean");
+            Variable<double> precision = Variable.GammaFromShapeAndScale(1, 1).Named("precision");
+
+            for (int i = 0; i < data.Length; i++)
+            {
+                Variable<double> x = Variable.GaussianFromMeanAndPrecision(mean, precision).Named("x" + i);
+                x.ObservedValue = data[i];
+            }
+
+            InferenceEngine engine = new InferenceEngine();
+
+            // Retrieve the posterior distributions
+            Console.WriteLine("mean=" + engine.Infer(mean));
+            Console.WriteLine("prec=" + engine.Infer(precision));
+            */
+ 
         }
     }
 }

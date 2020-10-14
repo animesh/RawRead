@@ -67,6 +67,22 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>.\ThermoFisher.CommonCore.RawFileReader.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.ML.Probabilistic">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\Microsoft.ML.Probabilistic.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.ML.Probabilistic.Compiler">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\Microsoft.ML.Probabilistic.Compiler.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.ML.Probabilistic.Learners">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\Microsoft.ML.Probabilistic.Learners.dll</HintPath>
+    </Reference>
+    <Reference Include="netstandard, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\netstandard.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitattributes" />
