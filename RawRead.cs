@@ -6,8 +6,7 @@ namespace RawRead
 {
     using ThermoFisher.CommonCore.RawFileReader;//RawFileReader from Planet Orbitrap http://planetorbitrap.com/rawfilereader
     using ThermoFisher.CommonCore.Data.Business;//RawFileReader
-    using MathNet.Numerics.IntegralTransforms;//nuget or dotnet https://www.nuget.org/packages/MathNet.Numerics/
-  //  using System.Numerics;//https://www.nuget.org/packages/System.Runtime.Numerics/
+    using MathNet.Numerics.Statistics;//nuget https://numerics.mathdotnet.com/ or dotnet https://www.nuget.org/packages/MathNet.Numerics/
     using System;
     using System.IO;
     using System.Collections.Generic;
@@ -26,7 +25,7 @@ namespace RawRead
             if(rawFile.IsError) { Console.WriteLine("Error opening {1}, probably not proper orbitrap raw file? This program is tested only on Elite, QE and HF orbitrap raw files...", rawFile.FileError, args[0]); return; }
             long insThr = 1000;
             if (args.Length == 2) { insThr = long.Parse(args[1]); }
-            int errTol = 3; // chk 10ppm [445.11612-445.12502]
+            int errTol = 3; // 445.12057 10ppm[445.11612-445.12502]
             if (args.Length == 3) { errTol = int.Parse(args[2]); }
             rawFile.SelectInstrument(Device.MS, 1);
             int fMS = rawFile.RunHeaderEx.FirstSpectrum;
@@ -41,9 +40,13 @@ namespace RawRead
             long tic = 0;
             long maxIntSum = 0;
 //            Complex[] samples = new Complex[nMS];
-            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MS.txt");
-            writeMS1.WriteLine("Scan\tContainScans\tBasePeak\tMaxIntensity\tRT\tMostIntenseMass2Charge\tCumulativeIntensity\tTotalScans");
-            Dictionary<string, long> intMZ1 = new Dictionary<string, long>(); 
+            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MS.csv");
+            Console.WriteLine("ScanContainScans\tBasePeak\tIoncnt\tRetention(minutes)\tMostIntenseMass2Charge\tCumulativeIntensity\tTotalScans");
+            writeMS1.WriteLine("Scan,ContainScans,BasePeak,MaxIntensity,RetentionTime,MostIntenseMass2Charge,CumulativeIntensity,TotalScans");
+            Dictionary<string, long> intMZ1 = new Dictionary<string, long>();
+            Dictionary<string, int> intMZ1cnt = new Dictionary<string, int>();
+            Dictionary<string, double> intMZ1mu = new Dictionary<string, double>();
+            Dictionary<string, double> intMZ1std = new Dictionary<string, double>();
             for (int i = fMS; i <= nMS; i++)
             {
                 double time = rawFile.RetentionTimeFromScanNumber(i);
@@ -59,17 +62,19 @@ namespace RawRead
                         long ic = (long)centroidStream.Intensities[j];
                         if (ic > insThr)
                         {
-                            string MZ1R = Math.Round((Double)centroidStream.Masses[j], errTol, MidpointRounding.AwayFromZero).ToString();
+                            double MZ1val = Math.Round((Double)centroidStream.Masses[j], errTol, MidpointRounding.AwayFromZero);
+                            string MZ1R = MZ1val.ToString();
+                            double diffMZ1val = centroidStream.Masses[j] - MZ1val;
                             tic += ic;
                             tms++;
-                            if (intMZ1.ContainsKey(MZ1R)) { intMZ1[MZ1R] += ic; }
-                            else { intMZ1.Add(MZ1R, ic); }
+                            if (intMZ1.ContainsKey(MZ1R)) { intMZ1[MZ1R] += ic; intMZ1cnt[MZ1R]++; intMZ1mu[MZ1R] += diffMZ1val; intMZ1std[MZ1R] += (diffMZ1val* diffMZ1val); }
+                            else { intMZ1.Add(MZ1R, ic); intMZ1cnt.Add(MZ1R, 1); intMZ1mu.Add(MZ1R, 0); intMZ1std.Add(MZ1R, 0); }
                             if (ic >= maxInt) { maxInt = ic; maxIntSum += maxInt; k = j; }
                         }
                         //                      writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}", tms, time, i, j, centroidStream.Masses[j], centroidStream.Intensities[j], scanStatistics.BasePeakMass, maxInt, tic, maxIntSum);
                     }
-                    if (i%100==0) { Console.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, centroidStream.Masses[k], maxInt, time, maxIntSum, tms); }
-                    writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, maxInt, time, centroidStream.Masses[k], maxIntSum, tms);
+                    if (i%100==0) { Console.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, maxInt, time, centroidStream.Masses[k], maxIntSum, tms); }
+                    writeMS1.WriteLine("{0},{1},{2},{3},{4},{5},{6},{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, maxInt, time, centroidStream.Masses[k], maxIntSum, tms);
                     //                    samples[i-1] = new Complex(scanStatistics.BasePeakMass,time);
                     //                if(i>1&&Math.Ceiling(samples[i-1].Real)<samples[i-2].Real){Console.WriteLine("{0}\t{1}\t{2}\t{3}", i, scanStatistics.BasePeakMass, maxIntSum,samples[i-2].Real-samples[i-1].Real);}
                 }
@@ -87,9 +92,22 @@ namespace RawRead
             */
             Console.WriteLine("#TIC>={0}intensity:\t{1}\t{2}", insThr, tms, tic);
             writeMS1.Close();
-            StreamWriter writeMZ1R = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MZ1R.txt");
-            writeMZ1R.WriteLine("MZ\tsumIntensity");
-            foreach (var element in intMZ1.OrderByDescending(x => x.Value)) { writeMZ1R.WriteLine("{0}\t{1}",element.Key,element.Value); }
+            // Stats https://rosettacode.org/wiki/Statistics/Basic#C.23 
+            const int numBuckets = 10;
+            long sampleSize = tms;
+            var histogram = new Histogram(intMZ1.Keys.ToList().Select(x => Double.Parse(x)).ToList(), numBuckets);
+            Console.WriteLine("Sample size: {0:N0}", sampleSize);
+            for (int i = 0; i < numBuckets; i++)
+            {
+                string bar = new String('#', (int)(histogram[i].Count * 360 / sampleSize));
+                Console.WriteLine(" {0:0.00} : {1}", histogram[i].LowerBound, bar);
+            }
+            var statistics = new DescriptiveStatistics(intMZ1.Values.ToList().Select(x => (double)x).ToList());
+            Console.WriteLine("  Mean: " + statistics.Mean);
+            Console.WriteLine("StdDev: " + statistics.StandardDeviation);
+            StreamWriter writeMZ1R = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MZ1R.csv");
+            writeMZ1R.WriteLine("MZ1,sumIntensity,Mean, Deviation,log2sumIntensity,ionsWithinErrTolerance");
+            foreach (var element in intMZ1.OrderByDescending(x => x.Value)) { writeMZ1R.WriteLine("{0},{1},{2},{3},{4},{5}", element.Key, element.Value, intMZ1mu[element.Key], intMZ1std[element.Key], Math.Log(element.Value,2), intMZ1cnt[element.Key]); }
             writeMZ1R.Close();
             rawFile.Dispose();
         }
