@@ -11,22 +11,28 @@ namespace RawRead
     using System.IO;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Xml.Linq;
 
     internal class RawRead2PeakList
     {
         static void Main(string[] args)
         {
+            var rawFile = RawFileReaderAdapter.FileFactory("171010_Ip_Hela_ugi.raw");
             //var rawFile = RawFileReaderAdapter.FileFactory("20150512_BSA_The-PEG-envelope.raw");
             //var rawFile = RawFileReaderAdapter.FileFactory("20200219_KKL_SARS_CoV2_pool1_F1.raw");
-            var rawFile = RawFileReaderAdapter.FileFactory("171010_Ip_Hela_ugi.raw");
-            if (args.Length < 1 || !File.Exists(args[0])) { Console.WriteLine("USAGE: {0} fileName intensityThreshold(for example 1000, optional) errorThreshold(for example 3 for upto 3 decimal points, optional), using default 171010_Ip_Hela_ugi.raw", AppDomain.CurrentDomain.FriendlyName);  }
+            string timeStart = DateTime.Now.ToString("yyyyMMddHHmmss");
+            if (args.Length < 1 || !File.Exists(args[0])) { Console.WriteLine("\nUSAGE: {0} *FILENAME* Threshold4intensity(default 0) Threshold4errorTolerance(default 3 for precision upto 3 decimal points) hmdbFile(default is hmdb_metabolites.sample.xml)\n\n :using default FILENAME:171010_Ip_Hela_ugi.raw and unzipped https://hmdb.ca/system/downloads/current/hmdb_metabolites.zip presenting Metabolite and Protein Data in XML format\n", AppDomain.CurrentDomain.FriendlyName);  }
             if(args.Length > 0){ rawFile = RawFileReaderAdapter.FileFactory(args[0]);}
             if(!rawFile.IsOpen) { Console.WriteLine("Raw file {1} is already Open, probably not finish writing", rawFile.FileError, args[0]); return; }
             if(rawFile.IsError) { Console.WriteLine("Error opening {1}, probably not proper orbitrap raw file? This program is tested only on Elite, QE and HF orbitrap raw files...", rawFile.FileError, args[0]); return; }
-            long insThr = 1000;
+            long insThr = 0;
             if (args.Length == 2) { insThr = long.Parse(args[1]); }
             int errTol = 3; // 445.12057 10ppm[445.11612-445.12502]
             if (args.Length == 3) { errTol = int.Parse(args[2]); }
+            string hmdbFile = "hmdb_metabolites.sample.xml";//Sample from Unzipped Metabolite and Protein Data (in XML format) https://hmdb.ca/downloads 
+            if (args.Length == 4) { hmdbFile = args[3]; }
+            string fileMS1 = rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".Time" + timeStart + hmdbFile + ".MS.csv";
+            string fileMZ1R = rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".Time" + timeStart + hmdbFile + ".MZ1R.csv";
             rawFile.SelectInstrument(Device.MS, 1);
             int fMS = rawFile.RunHeaderEx.FirstSpectrum;
             int nMS = rawFile.RunHeaderEx.LastSpectrum;
@@ -39,8 +45,8 @@ namespace RawRead
             long tms = 0;
             long tic = 0;
             long maxIntSum = 0;
-//            Complex[] samples = new Complex[nMS];
-            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MS.csv");
+            //            Complex[] samples = new Complex[nMS];
+            StreamWriter writeMS1 = new StreamWriter(fileMS1);
             Console.WriteLine("ScanContainScans\tBasePeak\tIoncnt\tRetention(minutes)\tMostIntenseMass2Charge\tCumulativeIntensity\tTotalScans");
             writeMS1.WriteLine("Scan,ContainScans,BasePeak,MaxIntensity,RetentionTime,MostIntenseMass2Charge,CumulativeIntensity,TotalScans");
             Dictionary<string, long> intMZ1 = new Dictionary<string, long>();
@@ -105,11 +111,15 @@ namespace RawRead
             var statistics = new DescriptiveStatistics(intMZ1.Values.ToList().Select(x => (double)x).ToList());
             Console.WriteLine("  Mean: " + statistics.Mean);
             Console.WriteLine("StdDev: " + statistics.StandardDeviation);
-            StreamWriter writeMZ1R = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".errTolDecimalPlace" + errTol + ".MZ1R.csv");
+            StreamWriter writeMZ1R = new StreamWriter(fileMZ1R);
             writeMZ1R.WriteLine("MZ1,sumIntensity,Mean, Deviation,log2sumIntensity,ionsWithinErrTolerance");
             foreach (var element in intMZ1.OrderByDescending(x => x.Value)) { writeMZ1R.WriteLine("{0},{1},{2},{3},{4},{5}", element.Key, element.Value, intMZ1mu[element.Key], intMZ1std[element.Key], Math.Log(element.Value,2), intMZ1cnt[element.Key]); }
             writeMZ1R.Close();
             rawFile.Dispose();
+            //Parse XML https://docs.microsoft.com/en-us/dotnet/standard/linq/linq-xml-overview
+            //IEnumerable<XElement> metaboliteOrder = XElement.Load(hmdbFile).Descendants();Elements("metabolite")
+            foreach (XElement name in XElement.Load(hmdbFile).Descendants()) { if (!name.IsEmpty) { Console.WriteLine("name:{0}", name.Value); } }
+            Console.WriteLine("\nResults written to files-\nMS scan info:\t{0}\nMZ1 statistics:\t{1}", fileMS1, fileMZ1R);
         }
     }
 }

@@ -8,8 +8,8 @@
 *.sln.docstates
 *.raw
 *.txt
-*.csv
-*.xml
+#*.csv
+#*.xml
 *.mgf
 *.cui
 
