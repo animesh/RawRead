@@ -1,16 +1,35 @@
-
 # Prerequisites
-* [Mono](http://www.mono-project.com/download/stable/#download-lin) 
-* RawFileReader from [Planet Orbitrap](http://planetorbitrap.com/rawfilereader) or [email](https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=jim.Shofstahl@thermofisher.com&su=Access%20to%20RawFileReader%20from%20Planet%20Orbitrap)  jim.shofstahl@thermofisher.com with Subject "Access to RawFileReader"
+* [check](https://dotnet.microsoft.com/learn/aspnet/blazor-tutorial/create)
+
+```bash
+cat /etc/os-release 
+dotnet --list-runtimes
+dotnet --list-sdk
+```
+* [dotnet](https://docs.microsoft.com/en-in/dotnet/core/install/linux-ubuntu#1604-)
+
+```bash
+wget https://packages.microsoft.com/config/ubuntu/16.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+sudo dpkg -i packages-microsoft-prod.deb
+sudo apt-get update;  sudo apt-get install -y apt-transport-https &&  sudo apt-get update &&  sudo apt-get install -y dotnet-sdk-5.0
+git clone http://github.com/animesh/RawRead
+git checkout -b blazor
+cat RawRead.csproj  >> BlazorApp.csproj
+rm -rf bin obj
+sed -i "s|http://localhost:5000|http://10.20.93.253:8080|g" Properties/launchSettings.json
+dot net run #open 10.20.93.253:8080
+```
 
 ## Compile
+
+* [Mono](http://www.mono-project.com/download/stable/#download-lin) 
+* RawFileReader from [Planet Orbitrap](http://planetorbitrap.com/rawfilereader) or [email](https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=jim.Shofstahl@thermofisher.com&su=Access%20to%20RawFileReader%20from%20Planet%20Orbitrap)  jim.shofstahl@thermofisher.com with Subject "Access to RawFileReader"
 
 ### Linux
 
 ```bash
-mcs RawRead.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll
+mcs RawRead.code /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll
 ```
-
 
 #### Windows can also use dotnet cmd "csc"
 
