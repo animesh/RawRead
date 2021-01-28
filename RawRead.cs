@@ -16,10 +16,8 @@ namespace RawRead
     {
         static void Main(string[] args)
         {
-            //var rawFile = RawFileReaderAdapter.FileFactory("20150512_BSA_The-PEG-envelope.raw");
-            //var rawFile = RawFileReaderAdapter.FileFactory("20200219_KKL_SARS_CoV2_pool1_F1.raw");
+            var rawFile = RawFileReaderAdapter.FileFactory("F:\\SK\\210112__solveig_AN0.raw");//
             string timeStart = DateTime.Now.ToString("yyyyMMddHHmmss"); 
-            var rawFile = RawFileReaderAdapter.FileFactory("171010_Ip_Hela_ugi.raw");
             if (args.Length < 1 || !File.Exists(args[0])) { Console.WriteLine("\nUSAGE: {0} *FILENAME* Threshold4intensity(default 1000) PPMthreshold(default 10 for binning around 10 parts/million mass-precision) Threshold4errorTolerance(default 3 for precision upto 3 decimal points)\n\n :using default FILENAME:171010_Ip_Hela_ugi.raw 1000intensity 10PPM 3decimal\n\n", AppDomain.CurrentDomain.FriendlyName); }
             if(args.Length > 0){ rawFile = RawFileReaderAdapter.FileFactory(args[0]);}
             if(!rawFile.IsOpen) { Console.WriteLine("Raw file {1} is already Open, probably not finish writing", rawFile.FileError, args[0]); return; }
@@ -43,9 +41,9 @@ namespace RawRead
             long tic = 0;
             long maxIntSum = 0;
 //            Complex[] samples = new Complex[nMS];
-            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".PPM" + ppmTol + ".errTolDecimalPlace" + errTol + ".Time" + timeStart + ".MS.csv");
+            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".intensityThreshold" + insThr + ".PPM" + ppmTol + ".errTolDecimalPlace" + errTol + ".Time" + timeStart + ".MS.txt");
             Console.WriteLine("ScanContainScans\tBasePeak\tIoncnt\tRetention(minutes)\tMostIntenseMass2Charge\tCumulativeIntensity\tTotalScans");
-            writeMS1.WriteLine("Scan,ContainScans,BasePeak,MaxIntensity,RetentionTime,MostIntenseMass2Charge,CumulativeIntensity,TotalScans");
+            writeMS1.WriteLine("MZ\tIntensity");
             Dictionary<string, long> intMZ1 = new Dictionary<string, long>();
             Dictionary<string, int> intMZ1cnt = new Dictionary<string, int>();
             Dictionary<string, double> intMZ1mu = new Dictionary<string, double>();
@@ -92,10 +90,11 @@ namespace RawRead
                             else { intMZ1.Add(MZ1RB, ic); intMZ1cnt.Add(MZ1RB, 1); intMZ1mu.Add(MZ1RB, 0); intMZ1std.Add(MZ1RB, 0); }
                             if (ic >= maxInt) { maxInt = ic; maxIntSum += maxInt; k = j; }
                         }
-                        //                      writeMS1.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}", tms, time, i, j, centroidStream.Masses[j], centroidStream.Intensities[j], scanStatistics.BasePeakMass, maxInt, tic, maxIntSum);
                     }
+                    //trying to create txt input (<raw>.MS.txt) for bayesian deconvolution program http://michaelmarty.github.io/UniDecDocumentation/index.html
+                    writeMS1.WriteLine("{0}\t{1}", scanStatistics.BasePeakMass, maxInt);
                     if (i%100==0) { Console.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, maxInt, time, centroidStream.Masses[k], maxIntSum, tms); }
-                    writeMS1.WriteLine("{0},{1},{2},{3},{4},{5},{6},{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, maxInt, time, centroidStream.Masses[k], maxIntSum, tms);
+                    //writeMS1.WriteLine("{0},{1},{2},{3},{4},{5},{6},{7}", i, centroidStream.Length, scanStatistics.BasePeakMass, maxInt, time, centroidStream.Masses[k], maxIntSum, tms);
                     //                    samples[i-1] = new Complex(scanStatistics.BasePeakMass,time);
                     //                if(i>1&&Math.Ceiling(samples[i-1].Real)<samples[i-2].Real){Console.WriteLine("{0}\t{1}\t{2}\t{3}", i, scanStatistics.BasePeakMass, maxIntSum,samples[i-2].Real-samples[i-1].Real);}
                 }
