@@ -1,12 +1,12 @@
 # Prerequisites
-* [check](https://dotnet.microsoft.com/learn/aspnet/blazor-tutorial/create)
+* OS [check](https://dotnet.microsoft.com/learn/aspnet/blazor-tutorial/create)
 
 ```bash
 cat /etc/os-release 
 dotnet --list-runtimes
 dotnet --list-sdk
 ```
-* [dotnet](https://docs.microsoft.com/en-in/dotnet/core/install/linux-ubuntu#1604-)
+* setup ubuntu-16.04 [dotnet](https://docs.microsoft.com/en-in/dotnet/core/install/linux-ubuntu#1604-)
 
 ```bash
 wget https://packages.microsoft.com/config/ubuntu/16.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
@@ -16,8 +16,13 @@ git clone http://github.com/animesh/RawRead
 git checkout -b blazor
 cat RawRead.csproj  >> BlazorApp.csproj
 rm -rf bin obj
-sed -i "s|http://localhost:5000|http://10.20.93.253:8080|g" Properties/launchSettings.json
-dot net run #open 10.20.93.253:8080
+sed -i "s|http://localhost:5000|http://10.20.93.118:8080|g" Properties/launchSettings.json
+```
+
+* launch 
+
+```bash
+dotnet run #open 10.20.93.253:8080
 ```
 
 ## Compile
