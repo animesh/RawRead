@@ -1,3 +1,6 @@
+```bash
+for i in ../Atle/*.raw ; do echo $i; ./RawRead.exe $i | grep sample ; done
+```
 
 # Prerequisites
 * [Mono](http://www.mono-project.com/download/stable/#download-lin) 
@@ -37,32 +40,5 @@ RawRead.exe <ThermoOrbitrapRawfileName> <intensityThreshold>(optional) <chargeTh
 
 ... 
 
-### Test
-
-#### Search converted file with [comet-ms](https://sourceforge.net/projects/comet-ms/)
-* normal window search for Qexactive(HF) and [Canonical Human Reviewed Database](https://www.uniprot.org/uniprot/?query=proteome:UP000005640%20reviewed:yes#)
-```bash
-./comet.2018012.linux.exe 171010_Ip_Hela_ugi.raw.intensity0.charge0.MGF
-```
-
-###  Search Raw file directly in linux
-since [MaxQuant goes Linux](https://www.nature.com/articles/s41592-018-0018-y), we can finally perform a direct search :) though there is an annoying issues of reproducibility in comparison with Windows run. It differs by ~1% which (has been reported to developers)[https://maxquant.myjetbrains.com/youtrack/issue/MaxQuant-185] and there seems to be an inherent problem in the way mono handles numbers c.f. dotnet , anyways 1% is something one can live with ;)
-
-* Download and Install [MaxQuant](http://www.coxdocs.org/doku.php?id=maxquant:common:download_and_installation)
-* create a parameter file for all raw files in the directory using the provided generic parameter file mqparTest.xml
-```bash
-for i in  *.raw; do echo $i; sed -e "s|RawTestFile|/$PWD/$i|g" mqparTest.xml > $i.mqpar.xml ; done
-```
-* use the paramter file(s) to search in [parallel](https://www.gnu.org/software/parallel/) 
-```bash
-find . -name "*.mqpar.xml" | parallel "mono <MaxQuant_1.6.2.3 root directory>/MaxQuant/bin/MaxQuantCmd.exe  {}" 2>stdout2 1>stdout1 > stdout0 &
-tail -f stdout?
-```
-
-#### Compare results
-```bash
-awk -F '\t' '{print $1" "$6}' 171010_Ip_Hela_ugi.rawCombined/combined/txt/proteinGroups.txt | less
-awk -F '\t' '{print $16}' 171010_Ip_Hela_ugi.raw.intensity0.charge0-comet-human.txt | less
-```
 
 
