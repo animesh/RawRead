@@ -1,0 +1,106 @@
+Starting job 4384541 on c3-[30-32,34-37,39-41] at Mon Nov 8 11:09:42 CET 2021
+
+we are running from this directory: /cluster/projects/nn9036k/RawRead
+ the name of the job is: MaxQuant
+Th job ID is 4384541
+The job was run on these nodes: c3-[30-32,34-37,39-41]
+Number of nodes: 10
+We are using 1 cores
+We are using 1 cores per node
+Total of 16 cores
+The following modules were not unloaded:
+  (Use "module --force purge" to unload all):
+
+  1) StdEnv
+Mono JIT compiler version 6.8.0.105 (tarball Fri Oct  9 11:00:40 CEST 2020)
+Copyright (C) 2002-2014 Novell, Inc, Xamarin Inc and Contributors. www.mono-project.com
+	TLS:           __thread
+	SIGSEGV:       altstack
+	Notifications: epoll
+	Architecture:  amd64
+	Disabled:      none
+	Misc:          softdebug 
+	Interpreter:   yes
+	LLVM:          supported, not enabled.
+	Suspend:       hybrid
+	GC:            sgen (concurrent by default)
+3.1.300
+Configuring 
+Assemble run info 
+Finish run info 
+Testing fasta files 
+Testing raw files 
+Feature detection 
+Deisotoping 
+MS/MS preparation 
+Calculating peak properties 
+Combining apl files for first search 
+Preparing searches 
+MS/MS first search 
+Read search results for recalibration 
+Mass recalibration 
+Calculating masses 
+MS/MS preparation for main search 
+Combining apl files for main search 
+MS/MS main search 
+Preparing combined folder  
+Correcting errors 
+Reading search engine results 
+Preparing reverse hits 
+Finish search engine results 
+Filter identifications (MS/MS) 
+Calculating PEP 
+Copying identifications 
+Applying FDR 
+Assembling second peptide MS/MS 
+Combining second peptide files 
+Second peptide search 
+Reading search engine results (SP) 
+Finish search engine results (SP) 
+Filtering identifications (SP) 
+Applying FDR (SP) 
+Re-quantification 
+Reporter quantification 
+Prepare protein assembly 
+Assembling proteins 
+Assembling unidentified peptides 
+Finish protein assembly 
+Updating identifications 
+De-novo sequencing  
+Finish de-novo sequencing  
+Finding Dependent Peptides 
+Extending dependent peptides 
+Dependent peptide histogram 
+Dependent peptide PEP 
+Dependent peptide apply FDR 
+Finish dependent peptide calculations 
+Re-quantifying dependent peptides 
+Top N quant 
+iBAQ 
+Estimating complexity 
+Prepare writing tables  
+Writing tables 
+Finish writing tables  
+
+Task and CPU usage stats:
+       JobID    JobName  AllocCPUS   NTasks     MinCPU MinCPUTask     AveCPU    Elapsed ExitCode 
+------------ ---------- ---------- -------- ---------- ---------- ---------- ---------- -------- 
+4384541        MaxQuant         16                                             00:19:06      0:0 
+4384541.bat+      batch          1        1   00:18:41          0   00:18:41   00:19:06      0:0 
+4384541.ext+     extern         16       10   00:00:00          9   00:00:00   00:19:06      0:0 
+
+Memory usage stats:
+       JobID     MaxRSS MaxRSSTask     AveRSS MaxPages   MaxPagesTask   AvePages 
+------------ ---------- ---------- ---------- -------- -------------- ---------- 
+4384541                                                                          
+4384541.bat+   4653692K          0   4653692K        0              0          0 
+4384541.ext+          0          9          0        0              9          0 
+
+Disk usage stats:
+       JobID  MaxDiskRead MaxDiskReadTask    AveDiskRead MaxDiskWrite MaxDiskWriteTask   AveDiskWrite 
+------------ ------------ --------------- -------------- ------------ ---------------- -------------- 
+4384541                                                                                               
+4384541.bat+       11.80M               0         11.80M        0.04M                0          0.04M 
+4384541.ext+        0.00M               9          0.00M            0                9              0 
+
+Job 4384541 completed at Mon Nov 8 11:28:49 CET 2021
