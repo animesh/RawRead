@@ -46,6 +46,14 @@ RawRead.exe <ThermoOrbitrapRawfileName> <intensityThreshold>(optional) <chargeTh
 ```
 
 ###  Search Raw file directly in linux
+
+```mermaid
+graph TD
+A[Raw Data] -->|Meta data| B(Parameter)
+B --> C{MaxQuant}
+C -->|Output| D[Protein Groups]
+```
+
 since [MaxQuant goes Linux](https://www.nature.com/articles/s41592-018-0018-y), we can finally perform a direct search :) though there is an annoying issues of reproducibility in comparison with Windows run. It differs by ~1% which (has been reported to developers)[https://maxquant.myjetbrains.com/youtrack/issue/MaxQuant-185] and there seems to be an inherent problem in the way mono handles numbers c.f. dotnet , anyways 1% is something one can live with ;)
 
 * Download and Install [MaxQuant](http://www.coxdocs.org/doku.php?id=maxquant:common:download_and_installation)
