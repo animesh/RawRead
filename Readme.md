@@ -45,6 +45,20 @@ mono countIons.exe <path/to/file.raw> <path/to/targets.csv>
 Target CSV format
 - The only required column is `Mass [m/z]` (case-insensitive match of header). Optional columns supported: `Start [min]` and `End [min]` (numeric minutes). Other columns are preserved in the accumulation CSV output.
 
+Minimal CSV requirements
+- Required: a header row with a column named exactly `Mass [m/z]` (case-insensitive). Each data row must contain the numeric m/z value for that target.
+- Optional but recommended: `Start [min]` and `End [min]` columns (numeric minutes) if you want retention-time windows for targets.
+- Format: CSV text (comma-separated, UTF-8 or ASCII). Header names are matched case-insensitively and trimmed of surrounding whitespace.
+- Filenames: when passing a second argument to `countIons.exe` it must be an existing `.csv` file; otherwise the program looks for `targeted peptides inkl mito sched.csv` next to the RAW file or in the current directory.
+- Minimal practical example (CSV):
+
+```
+Mass [m/z],Start [min],End [min],Peptide
+1120.0691,12.5,13.0,PEPTIDE_A
+900.4512,,,PEPTIDE_B
+```
+
+
 Target CSV columns (explicit)
 - Required:
 	- `Mass [m/z]` — the target monoisotopic m/z (header matched case-insensitively). This column is used for mass matching against the precursor m/z parsed from the scan title.
