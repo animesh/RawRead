@@ -9,6 +9,10 @@
 awk -F '\t' '{print $1" "$6}' 171010_Ip_Hela_ugi.rawCombined/combined/txt/proteinGroups.txt | less
 awk -F '\t' '{print $16}' 171010_Ip_Hela_ugi.raw.intensity0.charge0-comet-human.txt | less
 
+## inspect DLLs
+mcs InspectThermoDlls.cs -out:InspectThermoDlls.exe
+mono InspectThermoDlls.exe .
+
 ## countIons (per-scan TSV + targeted TIC accumulation)
 
 This repository includes `countIons.cs` (compiled to `countIons.exe`) — a helper that writes a compact per-scan TSV next to a Thermo RAW file and can accumulate targeted TIC values from a user-supplied CSV of targets.
