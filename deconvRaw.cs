@@ -1,13 +1,15 @@
-// targeted isotope-envelope deconvolution-lite for Thermo RAW
-// released under GPL version 2 or later: sharma.animesh@gmail.com
 // compile: mcs deconvRaw.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:deconvRaw.exe
-// run: mono deconvRaw.exe 260629_Solveig_3_L.raw 10000 100000 5 80 10 1000000 10000000 0.85 5 3 2 45
-// args: raw file minMass maxMass minCharge maxCharge ppmTolerance minSeedIntensity minEnvelopeIntensity minCos minMatchedIsotopes minFeatureScans maxGapScans maxSeedIsotopeIndex
+// run IgL 18-25 kDa: mono deconvRaw.exe 260629_Solveig_3_L.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 > log.txt 2>&1
+// args: rawFile minMass maxMass minCharge maxCharge ppmTolerance minSeedIntensity minEnvelopeIntensity minCos minMatchedIsotopes minFeatureScans maxGapScans maxSeedIsotopeIndex threads writeEvidence minRt maxRt minMz maxMz minTraceLengthSeconds minSampleRate minChargeCount minFeatureScore
+
 using System;
 using System.IO;
 using System.Linq;
 using System.Globalization;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
 using ThermoFisher.CommonCore.RawFileReader;
 using ThermoFisher.CommonCore.Data.Business;
 
@@ -17,6 +19,23 @@ namespace DeconvRawDiscovery
     {
         private const double Proton = 1.007276466812;
         private const double C13MinusC12 = 1.00335483507;
+
+        private static int ProgressTotal = 0;
+        private static int ProgressDone = 0;
+        private static int ProgressLastPercent = -1;
+        private static readonly object ProgressLock = new object();
+
+        private class ScanRange
+        {
+            public int Start;
+            public int End;
+        }
+
+        private class WorkerResult
+        {
+            public List<ScanSummary> ScanSummaries = new List<ScanSummary>();
+            public List<EnvelopeHit> Evidence = new List<EnvelopeHit>();
+        }
 
         private class PeakHit
         {
@@ -55,9 +74,12 @@ namespace DeconvRawDiscovery
             public double MaxChargeEnvelopeIntensity;
             public int BestCharge;
             public double BestChargeCosine;
+            public double MedianIsotopeCosine;
+            public int MedianMatchedIsotopes;
             public int MinCharge;
             public int MaxCharge;
             public int ChargeCount;
+            public double ChargeContinuity;
             public int EvidenceCount;
         }
 
@@ -68,13 +90,35 @@ namespace DeconvRawDiscovery
             public List<ScanSummary> Scans = new List<ScanSummary>();
             public bool Accepted;
             public string RejectReason;
+
+            public double StartRt;
+            public double EndRt;
+            public double ApexRt;
+            public double SumIntensity;
+            public double MaxScanIntensity;
+            public int MinCharge;
+            public int MaxCharge;
+            public int ChargeCount;
+            public double ChargeContinuity;
+            public int MatchedScans;
+            public int ScanSpan;
+            public double SampleRate;
+            public double TraceLengthSeconds;
+            public double MedianPpmError;
+            public double PpmMad;
+            public double MedianIsotopeCosine;
+            public double BestIsotopeCosine;
+            public int MedianMatchedIsotopes;
+            public double ApexDominance;
+            public double FeatureScore;
         }
 
         static void Main(string[] args)
         {
             if (args.Length < 1 || !File.Exists(args[0]))
             {
-                Console.WriteLine("USAGE: {0} file.raw [minMass=10000] [maxMass=100000] [minCharge=1] [maxCharge=80] [ppmTolerance=10] [minSeedIntensity=1000000] [minEnvelopeIntensity=10000000] [minCos=0.85] [minMatchedIsotopes=5] [minFeatureScans=3] [maxGapScans=2] [maxSeedIsotopeIndex=45]", AppDomain.CurrentDomain.FriendlyName);
+                Console.WriteLine("USAGE:");
+                Console.WriteLine("{0} file.raw [minMass=10000] [maxMass=100000] [minCharge=1] [maxCharge=80] [ppmTolerance=10] [minSeedIntensity=1000000] [minEnvelopeIntensity=10000000] [minCos=0.85] [minMatchedIsotopes=5] [minFeatureScans=3] [maxGapScans=2] [maxSeedIsotopeIndex=45] [threads=0] [writeEvidence=0] [minRt=-1] [maxRt=-1] [minMz=-1] [maxMz=-1] [minTraceLengthSeconds=0] [minSampleRate=0.05] [minChargeCount=1] [minFeatureScore=0]", AppDomain.CurrentDomain.FriendlyName);
                 return;
             }
 
@@ -92,6 +136,16 @@ namespace DeconvRawDiscovery
             int minFeatureScans = 3;
             int maxGapScans = 2;
             int maxSeedIsotopeIndex = 45;
+            int threads = 0;
+            int writeEvidenceInt = 0;
+            double minRt = -1.0;
+            double maxRt = -1.0;
+            double minMz = -1.0;
+            double maxMz = -1.0;
+            double minTraceLengthSeconds = 0.0;
+            double minSampleRate = 0.05;
+            int minChargeCount = 1;
+            double minFeatureScore = 0.0;
 
             if (args.Length >= 2) double.TryParse(args[1], NumberStyles.Float, CultureInfo.InvariantCulture, out minMass);
             if (args.Length >= 3) double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out maxMass);
@@ -105,10 +159,27 @@ namespace DeconvRawDiscovery
             if (args.Length >= 11) int.TryParse(args[10], NumberStyles.Integer, CultureInfo.InvariantCulture, out minFeatureScans);
             if (args.Length >= 12) int.TryParse(args[11], NumberStyles.Integer, CultureInfo.InvariantCulture, out maxGapScans);
             if (args.Length >= 13) int.TryParse(args[12], NumberStyles.Integer, CultureInfo.InvariantCulture, out maxSeedIsotopeIndex);
+            if (args.Length >= 14) int.TryParse(args[13], NumberStyles.Integer, CultureInfo.InvariantCulture, out threads);
+            if (args.Length >= 15) int.TryParse(args[14], NumberStyles.Integer, CultureInfo.InvariantCulture, out writeEvidenceInt);
+            if (args.Length >= 16) double.TryParse(args[15], NumberStyles.Float, CultureInfo.InvariantCulture, out minRt);
+            if (args.Length >= 17) double.TryParse(args[16], NumberStyles.Float, CultureInfo.InvariantCulture, out maxRt);
+            if (args.Length >= 18) double.TryParse(args[17], NumberStyles.Float, CultureInfo.InvariantCulture, out minMz);
+            if (args.Length >= 19) double.TryParse(args[18], NumberStyles.Float, CultureInfo.InvariantCulture, out maxMz);
+            if (args.Length >= 20) double.TryParse(args[19], NumberStyles.Float, CultureInfo.InvariantCulture, out minTraceLengthSeconds);
+            if (args.Length >= 21) double.TryParse(args[20], NumberStyles.Float, CultureInfo.InvariantCulture, out minSampleRate);
+            if (args.Length >= 22) int.TryParse(args[21], NumberStyles.Integer, CultureInfo.InvariantCulture, out minChargeCount);
+            if (args.Length >= 23) double.TryParse(args[22], NumberStyles.Float, CultureInfo.InvariantCulture, out minFeatureScore);
 
             if (minCharge <= 0) minCharge = 1;
             if (maxCharge < minCharge) maxCharge = minCharge;
             if (maxSeedIsotopeIndex < 0) maxSeedIsotopeIndex = 0;
+            if (threads <= 0) threads = Environment.ProcessorCount;
+            if (threads < 1) threads = 1;
+            if (minSampleRate < 0.0) minSampleRate = 0.0;
+            if (minSampleRate > 1.0) minSampleRate = 1.0;
+            if (minChargeCount < 1) minChargeCount = 1;
+
+            bool writeEvidence = writeEvidenceInt != 0;
 
             var rawFile = RawFileReaderAdapter.FileFactory(rawPath);
 
@@ -138,47 +209,236 @@ namespace DeconvRawDiscovery
             Console.WriteLine("#minFeatureScans:\t{0}", minFeatureScans.ToString(CultureInfo.InvariantCulture));
             Console.WriteLine("#maxGapScans:\t{0}", maxGapScans.ToString(CultureInfo.InvariantCulture));
             Console.WriteLine("#maxSeedIsotopeIndex:\t{0}", maxSeedIsotopeIndex.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#threads:\t{0}", threads.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#writeEvidence:\t{0}", writeEvidence ? "1" : "0");
+            Console.WriteLine("#minRt:\t{0}", minRt.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#maxRt:\t{0}", maxRt.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#minMz:\t{0}", minMz.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#maxMz:\t{0}", maxMz.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#minTraceLengthSeconds:\t{0}", minTraceLengthSeconds.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#minSampleRate:\t{0}", minSampleRate.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#minChargeCount:\t{0}", minChargeCount.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#minFeatureScore:\t{0}", minFeatureScore.ToString(CultureInfo.InvariantCulture));
 
-            List<EnvelopeHit> allHits = new List<EnvelopeHit>();
-            List<ScanSummary> allScanSummaries = new List<ScanSummary>();
+            rawFile.Dispose();
 
-            int lastPercent = -1;
+            ProgressTotal = scanCount;
+            ProgressDone = 0;
+            ProgressLastPercent = -1;
 
-            for (int scanNumber = firstScan; scanNumber <= lastScan; scanNumber++)
+            int chunkSize = Math.Max(10, scanCount / Math.Max(1, threads * 8));
+            List<ScanRange> ranges = BuildScanRanges(firstScan, lastScan, chunkSize);
+
+            var workerResults = new ConcurrentBag<WorkerResult>();
+
+            Parallel.ForEach(
+                ranges,
+                new ParallelOptions { MaxDegreeOfParallelism = threads },
+                range =>
+                {
+                    WorkerResult result = ProcessScanRange(
+                        rawPath,
+                        range.Start,
+                        range.End,
+                        minMass,
+                        maxMass,
+                        minCharge,
+                        maxCharge,
+                        ppmTolerance,
+                        minSeedIntensity,
+                        minEnvelopeIntensity,
+                        minCos,
+                        minMatchedIsotopes,
+                        maxSeedIsotopeIndex,
+                        writeEvidence,
+                        minRt,
+                        maxRt,
+                        minMz,
+                        maxMz
+                    );
+
+                    workerResults.Add(result);
+                }
+            );
+
+            Console.WriteLine();
+
+            List<ScanSummary> allScanSummaries = workerResults
+                .SelectMany(r => r.ScanSummaries)
+                .OrderBy(s => s.Mass)
+                .ThenBy(s => s.Scan)
+                .ToList();
+
+            List<EnvelopeHit> allEvidence = writeEvidence
+                ? workerResults.SelectMany(r => r.Evidence).ToList()
+                : new List<EnvelopeHit>();
+
+            List<FeatureGroup> features = BuildGlobalFeatures(
+                allScanSummaries,
+                ppmTolerance,
+                minFeatureScans,
+                maxGapScans,
+                minTraceLengthSeconds,
+                minSampleRate,
+                minChargeCount,
+                minFeatureScore
+            );
+
+            int acceptedIndex = 1;
+            foreach (FeatureGroup f in features.Where(f => f.Accepted).OrderByDescending(f => f.SumIntensity))
             {
-                double rt = rawFile.RetentionTimeFromScanNumber(scanNumber);
-                var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
+                f.FeatureIndex = acceptedIndex;
+                acceptedIndex++;
+            }
 
-                string scanEventText = "";
+            int rejectedIndex = 1;
+            foreach (FeatureGroup f in features.Where(f => !f.Accepted).OrderByDescending(f => f.SumIntensity))
+            {
+                f.FeatureIndex = rejectedIndex;
+                rejectedIndex++;
+            }
 
-                try
+            string prefix = rawPath + ".discovery";
+            string scanSummaryFile = prefix + ".scan_summary.tsv";
+            string featureFile = prefix + ".deconv_masses.tsv";
+            string rejectedFile = prefix + ".rejected_masses.tsv";
+            string evidenceFile = prefix + ".scan_evidence.tsv";
+
+            WriteScanSummary(scanSummaryFile, allScanSummaries);
+            WriteFeatureSummary(featureFile, features.Where(f => f.Accepted).OrderByDescending(f => f.SumIntensity).ToList(), false);
+            WriteFeatureSummary(rejectedFile, features.Where(f => !f.Accepted).OrderByDescending(f => f.SumIntensity).ToList(), true);
+
+            if (writeEvidence)
+            {
+                WriteEvidence(evidenceFile, allEvidence);
+                Console.WriteLine("Wrote scan evidence: {0}", evidenceFile);
+            }
+            else
+            {
+                Console.WriteLine("Skipped scan evidence output. Set writeEvidence=1 to enable.");
+            }
+
+            Console.WriteLine("Wrote scan summary: {0}", scanSummaryFile);
+            Console.WriteLine("Wrote deconvolved masses: {0}", featureFile);
+            Console.WriteLine("Wrote rejected masses: {0}", rejectedFile);
+        }
+
+        private static List<ScanRange> BuildScanRanges(int firstScan, int lastScan, int chunkSize)
+        {
+            var ranges = new List<ScanRange>();
+            int start = firstScan;
+
+            while (start <= lastScan)
+            {
+                int end = Math.Min(lastScan, start + chunkSize - 1);
+
+                ranges.Add(new ScanRange
                 {
-                    scanEventText = string.Join(" ", rawFile.GetScanEventForScanNumber(scanNumber));
-                }
-                catch
+                    Start = start,
+                    End = end
+                });
+
+                start = end + 1;
+            }
+
+            return ranges;
+        }
+
+        private static WorkerResult ProcessScanRange(
+            string rawPath,
+            int startScan,
+            int endScan,
+            double minMass,
+            double maxMass,
+            int minCharge,
+            int maxCharge,
+            double ppmTolerance,
+            double minSeedIntensity,
+            double minEnvelopeIntensity,
+            double minCos,
+            int minMatchedIsotopes,
+            int maxSeedIsotopeIndex,
+            bool writeEvidence,
+            double minRt,
+            double maxRt,
+            double minMz,
+            double maxMz)
+        {
+            WorkerResult result = new WorkerResult();
+
+            var localRawFile = RawFileReaderAdapter.FileFactory(rawPath);
+
+            if (!localRawFile.IsOpen || localRawFile.IsError)
+            {
+                Console.Error.WriteLine("Worker failed to open RAW file. FileError: {0}", localRawFile.FileError);
+                return result;
+            }
+
+            localRawFile.SelectInstrument(Device.MS, 1);
+
+            try
+            {
+                for (int scanNumber = startScan; scanNumber <= endScan; scanNumber++)
                 {
-                    scanEventText = "";
-                }
-
-                bool looksLikeMs1 =
-                    scanEventText.IndexOf(" ms ", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                    scanEventText.IndexOf("@", StringComparison.OrdinalIgnoreCase) < 0;
-
-                if (looksLikeMs1)
-                {
-                    CentroidStream centroidStream = null;
-
                     try
                     {
-                        centroidStream = rawFile.GetCentroidStream(scanNumber, false);
-                    }
-                    catch
-                    {
-                        centroidStream = null;
-                    }
+                        double rt = localRawFile.RetentionTimeFromScanNumber(scanNumber);
 
-                    if (centroidStream != null && centroidStream.Length > 0)
-                    {
+                        if (minRt >= 0.0 && rt < minRt)
+                        {
+                            ReportProgress();
+                            continue;
+                        }
+
+                        if (maxRt >= 0.0 && rt > maxRt)
+                        {
+                            ReportProgress();
+                            continue;
+                        }
+
+                        var scanStatistics = localRawFile.GetScanStatsForScanNumber(scanNumber);
+
+                        string scanEventText = "";
+
+                        try
+                        {
+                            scanEventText = string.Join(" ", localRawFile.GetScanEventForScanNumber(scanNumber));
+                        }
+                        catch
+                        {
+                            scanEventText = "";
+                        }
+
+                        bool looksLikeMs1 =
+                            scanEventText.Length == 0 ||
+                            (
+                                scanEventText.IndexOf("ms", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                                scanEventText.IndexOf("@", StringComparison.OrdinalIgnoreCase) < 0
+                            );
+
+                        if (!looksLikeMs1)
+                        {
+                            ReportProgress();
+                            continue;
+                        }
+
+                        CentroidStream centroidStream = null;
+
+                        try
+                        {
+                            centroidStream = localRawFile.GetCentroidStream(scanNumber, false);
+                        }
+                        catch
+                        {
+                            centroidStream = null;
+                        }
+
+                        if (centroidStream == null || centroidStream.Length <= 0)
+                        {
+                            ReportProgress();
+                            continue;
+                        }
+
                         List<EnvelopeHit> scanHits = DiscoverScanMasses(
                             scanNumber,
                             rt,
@@ -193,61 +453,36 @@ namespace DeconvRawDiscovery
                             minEnvelopeIntensity,
                             minCos,
                             minMatchedIsotopes,
-                            maxSeedIsotopeIndex
+                            maxSeedIsotopeIndex,
+                            minMz,
+                            maxMz
                         );
 
-                        List<ScanSummary> scanSummaries = CollapseScanHits(scanHits, ppmTolerance);
+                        if (scanHits.Count > 0)
+                        {
+                            List<ScanSummary> scanSummaries = CollapseScanHits(scanHits, ppmTolerance);
+                            result.ScanSummaries.AddRange(scanSummaries);
 
-                        allHits.AddRange(scanHits);
-                        allScanSummaries.AddRange(scanSummaries);
+                            if (writeEvidence)
+                            {
+                                result.Evidence.AddRange(scanHits);
+                            }
+                        }
                     }
-                }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine("Warning: failed scan {0}: {1}", scanNumber.ToString(CultureInfo.InvariantCulture), ex.Message);
+                    }
 
-                int processed = scanNumber - firstScan + 1;
-                int percent = (int)((processed * 100L) / scanCount);
-
-                if (percent != lastPercent)
-                {
-                    lastPercent = percent;
-                    PrintProgress(percent);
+                    ReportProgress();
                 }
             }
-
-            Console.WriteLine();
-            rawFile.Dispose();
-
-            List<FeatureGroup> features = BuildGlobalFeatures(allScanSummaries, ppmTolerance, minFeatureScans, maxGapScans);
-
-            int idx = 1;
-            foreach (FeatureGroup f in features.Where(f => f.Accepted).OrderByDescending(f => f.Scans.Sum(s => s.ScanEnvelopeIntensity)))
+            finally
             {
-                f.FeatureIndex = idx;
-                idx++;
+                localRawFile.Dispose();
             }
 
-            idx = 1;
-            foreach (FeatureGroup f in features.Where(f => !f.Accepted).OrderByDescending(f => f.Scans.Sum(s => s.ScanEnvelopeIntensity)))
-            {
-                f.FeatureIndex = idx;
-                idx++;
-            }
-
-            string prefix = rawPath + ".discovery";
-
-            string evidenceFile = prefix + ".scan_evidence.tsv";
-            string scanSummaryFile = prefix + ".scan_summary.tsv";
-            string featureFile = prefix + ".deconv_masses.tsv";
-            string rejectedFile = prefix + ".rejected_masses.tsv";
-
-            WriteEvidence(evidenceFile, allHits);
-            WriteScanSummary(scanSummaryFile, allScanSummaries);
-            WriteFeatureSummary(featureFile, features.Where(f => f.Accepted).OrderByDescending(f => f.Scans.Sum(s => s.ScanEnvelopeIntensity)).ToList());
-            WriteRejectedFeatureSummary(rejectedFile, features.Where(f => !f.Accepted).OrderByDescending(f => f.Scans.Sum(s => s.ScanEnvelopeIntensity)).ToList());
-
-            Console.WriteLine("Wrote scan evidence: {0}", evidenceFile);
-            Console.WriteLine("Wrote scan summary: {0}", scanSummaryFile);
-            Console.WriteLine("Wrote deconvolved masses: {0}", featureFile);
-            Console.WriteLine("Wrote rejected masses: {0}", rejectedFile);
+            return result;
         }
 
         private static List<EnvelopeHit> DiscoverScanMasses(
@@ -264,7 +499,9 @@ namespace DeconvRawDiscovery
             double minEnvelopeIntensity,
             double minCos,
             int minMatchedIsotopes,
-            int maxSeedIsotopeIndex)
+            int maxSeedIsotopeIndex,
+            double minMz,
+            double maxMz)
         {
             List<EnvelopeHit> hits = new List<EnvelopeHit>();
 
@@ -281,13 +518,30 @@ namespace DeconvRawDiscovery
                 chargeArray = null;
             }
 
+            if (mzArray == null || intensityArray == null || mzArray.Length != intensityArray.Length)
+            {
+                return hits;
+            }
+
             for (int peakIndex = 0; peakIndex < mzArray.Length; peakIndex++)
             {
                 double seedMz = mzArray[peakIndex];
                 double seedIntensity = intensityArray[peakIndex];
 
                 if (seedIntensity < minSeedIntensity)
+                {
                     continue;
+                }
+
+                if (minMz >= 0.0 && seedMz < minMz)
+                {
+                    continue;
+                }
+
+                if (maxMz >= 0.0 && seedMz > maxMz)
+                {
+                    continue;
+                }
 
                 List<int> charges = GetCandidateCharges(chargeArray, peakIndex, minCharge, maxCharge);
 
@@ -300,7 +554,9 @@ namespace DeconvRawDiscovery
                         double candidateMass = seedMz * charge - charge * Proton - seedIso * C13MinusC12;
 
                         if (candidateMass < minMass || candidateMass > maxMass)
+                        {
                             continue;
+                        }
 
                         EnvelopeHit hit = TryMatchEnvelope(
                             scanNumber,
@@ -318,7 +574,9 @@ namespace DeconvRawDiscovery
                         );
 
                         if (hit != null)
+                        {
                             hits.Add(hit);
+                        }
                     }
                 }
             }
@@ -329,13 +587,14 @@ namespace DeconvRawDiscovery
         private static List<int> GetCandidateCharges(double[] chargeArray, int peakIndex, int minCharge, int maxCharge)
         {
             List<int> charges = new List<int>();
-
             int thermoCharge = 0;
 
             try
             {
                 if (chargeArray != null && peakIndex < chargeArray.Length)
+                {
                     thermoCharge = (int)Math.Round(chargeArray[peakIndex]);
+                }
             }
             catch
             {
@@ -349,7 +608,9 @@ namespace DeconvRawDiscovery
             else
             {
                 for (int z = minCharge; z <= maxCharge; z++)
+                {
                     charges.Add(z);
+                }
             }
 
             return charges;
@@ -370,10 +631,12 @@ namespace DeconvRawDiscovery
             int minMatchedIsotopes)
         {
             if (charge <= 0)
+            {
                 return null;
+            }
 
             int isotopeCount = EstimateIsotopeCount(candidateMass);
-            double[] theoretical = BuildPoissonEnvelope(candidateMass, isotopeCount);
+            double[] theoretical = BuildAveragineEnvelope(candidateMass, isotopeCount);
             double[] observed = new double[isotopeCount];
 
             double envelopeIntensity = 0.0;
@@ -410,19 +673,39 @@ namespace DeconvRawDiscovery
             }
 
             if (matchedIsotopeCount < minMatchedIsotopes)
+            {
                 return null;
+            }
 
             if (envelopeIntensity < minEnvelopeIntensity)
+            {
                 return null;
+            }
 
             double cosine = Cosine(observed, theoretical);
 
             if (cosine < minCos)
+            {
                 return null;
+            }
 
             double observedMass = observedMassWeight > 0.0 ? observedMassWeightedSum / observedMassWeight : double.NaN;
             double ppmError = PpmError(observedMass, candidateMass);
             double baseMz = (candidateMass + charge * Proton) / charge;
+
+            double basePeakMass = double.NaN;
+            double tic = double.NaN;
+
+            try
+            {
+                basePeakMass = scanStatistics.BasePeakMass;
+                tic = scanStatistics.TIC;
+            }
+            catch
+            {
+                basePeakMass = double.NaN;
+                tic = double.NaN;
+            }
 
             return new EnvelopeHit
             {
@@ -440,26 +723,193 @@ namespace DeconvRawDiscovery
                 MatchedIsotopeCount = matchedIsotopeCount,
                 TotalIsotopeCount = isotopeCount,
                 IsotopeCosineScore = cosine,
-                BasePeakMass = scanStatistics.BasePeakMass,
-                Tic = scanStatistics.TIC
+                BasePeakMass = basePeakMass,
+                Tic = tic
             };
+        }
+
+        private static int EstimateIsotopeCount(double neutralMass)
+        {
+            double lambda = neutralMass / 1800.0;
+            int count = (int)Math.Ceiling(lambda + 8.0 * Math.Sqrt(Math.Max(1.0, lambda)) + 12.0);
+
+            if (count < 16) count = 16;
+            if (count > 160) count = 160;
+
+            return count;
+        }
+
+        private static double[] BuildAveragineEnvelope(double neutralMass, int isotopeCount)
+        {
+            double scale = neutralMass / 111.1254;
+
+            int carbon = Math.Max(1, (int)Math.Round(4.9384 * scale));
+            int hydrogen = Math.Max(1, (int)Math.Round(7.7583 * scale));
+            int nitrogen = Math.Max(1, (int)Math.Round(1.3577 * scale));
+            int oxygen = Math.Max(1, (int)Math.Round(1.4773 * scale));
+            int sulfur = Math.Max(0, (int)Math.Round(0.0417 * scale));
+
+            double[] envelope = new double[isotopeCount];
+            envelope[0] = 1.0;
+
+            envelope = Convolve(envelope, BinomialDistribution(carbon, 0.0107, isotopeCount), isotopeCount);
+            envelope = Convolve(envelope, BinomialDistribution(hydrogen, 0.000115, isotopeCount), isotopeCount);
+            envelope = Convolve(envelope, BinomialDistribution(nitrogen, 0.00364, isotopeCount), isotopeCount);
+            envelope = Convolve(envelope, MultinomialSmallElementDistribution(oxygen, new int[] { 0, 1, 2 }, new double[] { 0.99757, 0.00038, 0.00205 }, isotopeCount), isotopeCount);
+
+            if (sulfur > 0)
+            {
+                envelope = Convolve(envelope, MultinomialSmallElementDistribution(sulfur, new int[] { 0, 1, 2, 4 }, new double[] { 0.9499, 0.0075, 0.0425, 0.0001 }, isotopeCount), isotopeCount);
+            }
+
+            Normalize(envelope);
+            return envelope;
+        }
+
+        private static double[] BinomialDistribution(int n, double p, int isotopeCount)
+        {
+            double[] d = new double[isotopeCount];
+
+            if (n <= 0)
+            {
+                d[0] = 1.0;
+                return d;
+            }
+
+            double q = 1.0 - p;
+            d[0] = Math.Exp(n * Math.Log(q));
+
+            for (int k = 1; k < isotopeCount; k++)
+            {
+                d[k] = d[k - 1] * (n - k + 1) / k * p / q;
+            }
+
+            Normalize(d);
+            return d;
+        }
+
+        private static double[] MultinomialSmallElementDistribution(int n, int[] shifts, double[] probs, int isotopeCount)
+        {
+            double[] d = new double[isotopeCount];
+            d[0] = 1.0;
+
+            for (int atom = 0; atom < n; atom++)
+            {
+                double[] next = new double[isotopeCount];
+
+                for (int i = 0; i < isotopeCount; i++)
+                {
+                    if (d[i] == 0.0) continue;
+
+                    for (int s = 0; s < shifts.Length; s++)
+                    {
+                        int j = i + shifts[s];
+
+                        if (j < isotopeCount)
+                        {
+                            next[j] += d[i] * probs[s];
+                        }
+                    }
+                }
+
+                d = next;
+            }
+
+            Normalize(d);
+            return d;
+        }
+
+        private static double[] Convolve(double[] a, double[] b, int isotopeCount)
+        {
+            double[] c = new double[isotopeCount];
+
+            for (int i = 0; i < isotopeCount; i++)
+            {
+                if (a[i] == 0.0) continue;
+
+                for (int j = 0; j + i < isotopeCount; j++)
+                {
+                    if (b[j] == 0.0) continue;
+                    c[i + j] += a[i] * b[j];
+                }
+            }
+
+            Normalize(c);
+            return c;
+        }
+
+        private static void Normalize(double[] values)
+        {
+            double sum = 0.0;
+
+            for (int i = 0; i < values.Length; i++)
+            {
+                sum += values[i];
+            }
+
+            if (sum <= 0.0) return;
+
+            for (int i = 0; i < values.Length; i++)
+            {
+                values[i] /= sum;
+            }
+        }
+
+        private static PeakHit FindHighestPeak(double[] mzArray, double[] intensityArray, double minMz, double maxMz)
+        {
+            int start = LowerBound(mzArray, minMz);
+            PeakHit best = null;
+
+            for (int i = start; i < mzArray.Length; i++)
+            {
+                if (mzArray[i] > maxMz) break;
+                if (mzArray[i] < minMz) continue;
+
+                if (best == null || intensityArray[i] > best.Intensity)
+                {
+                    best = new PeakHit
+                    {
+                        Index = i,
+                        Mz = mzArray[i],
+                        Intensity = intensityArray[i]
+                    };
+                }
+            }
+
+            return best;
+        }
+
+        private static int LowerBound(double[] array, double value)
+        {
+            int left = 0;
+            int right = array.Length;
+
+            while (left < right)
+            {
+                int mid = left + (right - left) / 2;
+
+                if (array[mid] < value) left = mid + 1;
+                else right = mid;
+            }
+
+            return left;
         }
 
         private static List<ScanSummary> CollapseScanHits(List<EnvelopeHit> scanHits, double ppmTolerance)
         {
             List<ScanSummary> output = new List<ScanSummary>();
 
-            if (scanHits.Count == 0)
-                return output;
+            if (scanHits.Count == 0) return output;
 
             List<EnvelopeHit> sorted = scanHits.OrderBy(h => h.ObservedMass).ToList();
-
             List<EnvelopeHit> current = new List<EnvelopeHit>();
             double currentCenter = double.NaN;
 
             for (int i = 0; i < sorted.Count; i++)
             {
                 EnvelopeHit hit = sorted[i];
+
+                if (double.IsNaN(hit.ObservedMass)) continue;
 
                 if (current.Count == 0)
                 {
@@ -485,7 +935,9 @@ namespace DeconvRawDiscovery
             }
 
             if (current.Count > 0)
+            {
                 output.Add(MakeScanSummary(current));
+            }
 
             return output;
         }
@@ -497,31 +949,38 @@ namespace DeconvRawDiscovery
             foreach (EnvelopeHit h in hits)
             {
                 if (!bestByCharge.ContainsKey(h.Charge) || h.EnvelopeIntensity > bestByCharge[h.Charge].EnvelopeIntensity)
+                {
                     bestByCharge[h.Charge] = h;
+                }
             }
 
             List<EnvelopeHit> list = bestByCharge.Values.ToList();
 
             double totalIntensity = list.Sum(h => h.EnvelopeIntensity);
             double mass = totalIntensity > 0.0 ? list.Sum(h => h.ObservedMass * h.EnvelopeIntensity) / totalIntensity : list.Average(h => h.ObservedMass);
-            List<double> ppmErrors = list.Select(h => h.PpmError).ToList();
-
             EnvelopeHit best = list.OrderByDescending(h => h.EnvelopeIntensity).First();
             List<int> charges = list.Select(h => h.Charge).Distinct().OrderBy(z => z).ToList();
+
+            int minCharge = charges.First();
+            int maxCharge = charges.Last();
+            double chargeContinuity = (maxCharge >= minCharge) ? charges.Count / (double)(maxCharge - minCharge + 1) : 1.0;
 
             return new ScanSummary
             {
                 Scan = best.Scan,
                 Rt = best.Rt,
                 Mass = mass,
-                MedianPpmError = Median(ppmErrors),
+                MedianPpmError = Median(list.Select(h => h.PpmError).ToList()),
                 ScanEnvelopeIntensity = totalIntensity,
                 MaxChargeEnvelopeIntensity = best.EnvelopeIntensity,
                 BestCharge = best.Charge,
                 BestChargeCosine = best.IsotopeCosineScore,
-                MinCharge = charges.First(),
-                MaxCharge = charges.Last(),
+                MedianIsotopeCosine = Median(list.Select(h => h.IsotopeCosineScore).ToList()),
+                MedianMatchedIsotopes = (int)Math.Round(Median(list.Select(h => (double)h.MatchedIsotopeCount).ToList())),
+                MinCharge = minCharge,
+                MaxCharge = maxCharge,
                 ChargeCount = charges.Count,
+                ChargeContinuity = chargeContinuity,
                 EvidenceCount = hits.Count
             };
         }
@@ -530,18 +989,27 @@ namespace DeconvRawDiscovery
         {
             double total = hits.Sum(h => h.EnvelopeIntensity);
 
-            if (total <= 0)
+            if (total <= 0.0)
+            {
                 return hits.Average(h => h.ObservedMass);
+            }
 
             return hits.Sum(h => h.ObservedMass * h.EnvelopeIntensity) / total;
         }
 
-        private static List<FeatureGroup> BuildGlobalFeatures(List<ScanSummary> scanSummaries, double ppmTolerance, int minFeatureScans, int maxGapScans)
+        private static List<FeatureGroup> BuildGlobalFeatures(
+            List<ScanSummary> scanSummaries,
+            double ppmTolerance,
+            int minFeatureScans,
+            int maxGapScans,
+            double minTraceLengthSeconds,
+            double minSampleRate,
+            int minChargeCount,
+            double minFeatureScore)
         {
             List<FeatureGroup> output = new List<FeatureGroup>();
 
-            if (scanSummaries.Count == 0)
-                return output;
+            if (scanSummaries.Count == 0) return output;
 
             List<ScanSummary> sortedByMass = scanSummaries.OrderBy(s => s.Mass).ToList();
             List<List<ScanSummary>> massClusters = new List<List<ScanSummary>>();
@@ -551,6 +1019,8 @@ namespace DeconvRawDiscovery
 
             foreach (ScanSummary s in sortedByMass)
             {
+                if (double.IsNaN(s.Mass)) continue;
+
                 if (current.Count == 0)
                 {
                     current.Add(s);
@@ -575,7 +1045,9 @@ namespace DeconvRawDiscovery
             }
 
             if (current.Count > 0)
+            {
                 massClusters.Add(current);
+            }
 
             foreach (List<ScanSummary> massCluster in massClusters)
             {
@@ -589,14 +1061,20 @@ namespace DeconvRawDiscovery
                     bool startNew = false;
 
                     if (feature == null)
+                    {
                         startNew = true;
+                    }
                     else if (previous != null && scan.Scan - previous.Scan > maxGapScans)
+                    {
                         startNew = true;
+                    }
 
                     if (startNew)
                     {
                         if (feature != null)
-                            output.Add(FinalizeFeature(feature, minFeatureScans));
+                        {
+                            output.Add(FinalizeFeature(feature, minFeatureScans, minTraceLengthSeconds, minSampleRate, minChargeCount, minFeatureScore));
+                        }
 
                         feature = new FeatureGroup();
                     }
@@ -606,130 +1084,107 @@ namespace DeconvRawDiscovery
                 }
 
                 if (feature != null)
-                    output.Add(FinalizeFeature(feature, minFeatureScans));
+                {
+                    output.Add(FinalizeFeature(feature, minFeatureScans, minTraceLengthSeconds, minSampleRate, minChargeCount, minFeatureScore));
+                }
             }
 
             return output;
         }
 
-        private static FeatureGroup FinalizeFeature(FeatureGroup feature, int minFeatureScans)
+        private static FeatureGroup FinalizeFeature(
+            FeatureGroup feature,
+            int minFeatureScans,
+            double minTraceLengthSeconds,
+            double minSampleRate,
+            int minChargeCount,
+            double minFeatureScore)
         {
-            double totalIntensity = feature.Scans.Sum(s => s.ScanEnvelopeIntensity);
+            List<ScanSummary> scans = feature.Scans.OrderBy(s => s.Scan).ToList();
+            double totalIntensity = scans.Sum(s => s.ScanEnvelopeIntensity);
 
-            if (totalIntensity > 0.0)
-                feature.Mass = feature.Scans.Sum(s => s.Mass * s.ScanEnvelopeIntensity) / totalIntensity;
-            else
-                feature.Mass = feature.Scans.Average(s => s.Mass);
+            feature.SumIntensity = totalIntensity;
+            feature.MaxScanIntensity = scans.Max(s => s.ScanEnvelopeIntensity);
+            feature.Mass = totalIntensity > 0.0 ? scans.Sum(s => s.Mass * s.ScanEnvelopeIntensity) / totalIntensity : scans.Average(s => s.Mass);
 
-            int scanCount = feature.Scans.Select(s => s.Scan).Distinct().Count();
+            feature.StartRt = scans.First().Rt;
+            feature.EndRt = scans.Last().Rt;
+            feature.ApexRt = scans.OrderByDescending(s => s.ScanEnvelopeIntensity).First().Rt;
+            feature.MinCharge = scans.Min(s => s.MinCharge);
+            feature.MaxCharge = scans.Max(s => s.MaxCharge);
+            feature.ChargeCount = CountDistinctCharges(scans);
+            feature.ChargeContinuity = feature.MaxCharge >= feature.MinCharge ? feature.ChargeCount / (double)(feature.MaxCharge - feature.MinCharge + 1) : 1.0;
+            feature.MatchedScans = scans.Select(s => s.Scan).Distinct().Count();
+            feature.ScanSpan = scans.Last().Scan - scans.First().Scan + 1;
+            feature.SampleRate = feature.ScanSpan > 0 ? feature.MatchedScans / (double)feature.ScanSpan : 1.0;
+            feature.TraceLengthSeconds = Math.Max(0.0, (feature.EndRt - feature.StartRt) * 60.0);
+            feature.MedianPpmError = Median(scans.Select(s => s.MedianPpmError).ToList());
+            feature.PpmMad = MedianAbsoluteDeviation(scans.Select(s => s.MedianPpmError).ToList());
+            feature.MedianIsotopeCosine = Median(scans.Select(s => s.MedianIsotopeCosine).ToList());
+            feature.BestIsotopeCosine = scans.Max(s => s.BestChargeCosine);
+            feature.MedianMatchedIsotopes = (int)Math.Round(Median(scans.Select(s => (double)s.MedianMatchedIsotopes).ToList()));
+            feature.ApexDominance = feature.SumIntensity > 0.0 ? feature.MaxScanIntensity / feature.SumIntensity : 0.0;
+            feature.FeatureScore = CalculateFeatureScore(feature);
 
-            if (scanCount >= minFeatureScans)
-            {
-                feature.Accepted = true;
-                feature.RejectReason = "";
-            }
-            else
-            {
-                feature.Accepted = false;
-                feature.RejectReason = "scan_count_below_minimum";
-            }
+            List<string> reasons = new List<string>();
+
+            if (feature.MatchedScans < minFeatureScans) reasons.Add("scan_count_below_minimum");
+            if (feature.TraceLengthSeconds < minTraceLengthSeconds) reasons.Add("trace_length_below_minimum");
+            if (feature.SampleRate < minSampleRate) reasons.Add("sample_rate_below_minimum");
+            if (feature.ChargeCount < minChargeCount) reasons.Add("charge_count_below_minimum");
+            if (feature.FeatureScore < minFeatureScore) reasons.Add("feature_score_below_minimum");
+
+            feature.Accepted = reasons.Count == 0;
+            feature.RejectReason = string.Join(";", reasons.ToArray());
 
             return feature;
+        }
+
+        private static int CountDistinctCharges(List<ScanSummary> scans)
+        {
+            HashSet<int> charges = new HashSet<int>();
+
+            foreach (ScanSummary s in scans)
+            {
+                for (int z = s.MinCharge; z <= s.MaxCharge; z++)
+                {
+                    charges.Add(z);
+                }
+            }
+
+            return charges.Count;
+        }
+
+        private static double CalculateFeatureScore(FeatureGroup f)
+        {
+            double isotope = Clamp01((f.MedianIsotopeCosine - 0.70) / 0.30);
+            double charge = Clamp01(f.ChargeContinuity) * Clamp01(f.ChargeCount / 6.0);
+            double scans = Clamp01(f.MatchedScans / 8.0);
+            double sample = Clamp01(f.SampleRate);
+            double massAccuracy = Clamp01(1.0 - Math.Abs(f.MedianPpmError) / 20.0);
+            double apex = Clamp01(f.ApexDominance * 5.0);
+
+            return 0.35 * isotope + 0.20 * charge + 0.15 * scans + 0.15 * sample + 0.10 * massAccuracy + 0.05 * apex;
+        }
+
+        private static double Clamp01(double x)
+        {
+            if (double.IsNaN(x)) return 0.0;
+            if (x < 0.0) return 0.0;
+            if (x > 1.0) return 1.0;
+            return x;
         }
 
         private static double WeightedMeanMassFromScans(List<ScanSummary> scans)
         {
             double total = scans.Sum(s => s.ScanEnvelopeIntensity);
 
-            if (total <= 0)
+            if (total <= 0.0)
+            {
                 return scans.Average(s => s.Mass);
+            }
 
             return scans.Sum(s => s.Mass * s.ScanEnvelopeIntensity) / total;
-        }
-
-        private static int EstimateIsotopeCount(double neutralMass)
-        {
-            double lambda = EstimateCarbonLambda(neutralMass);
-            int count = (int)Math.Ceiling(lambda + 8.0 * Math.Sqrt(lambda) + 10.0);
-
-            if (count < 16)
-                count = 16;
-
-            if (count > 120)
-                count = 120;
-
-            return count;
-        }
-
-        private static double EstimateCarbonLambda(double neutralMass)
-        {
-            return neutralMass / 1800.0;
-        }
-
-        private static double[] BuildPoissonEnvelope(double neutralMass, int isotopeCount)
-        {
-            double lambda = EstimateCarbonLambda(neutralMass);
-            double[] envelope = new double[isotopeCount];
-
-            envelope[0] = Math.Exp(-lambda);
-
-            for (int i = 1; i < isotopeCount; i++)
-                envelope[i] = envelope[i - 1] * lambda / i;
-
-            double sum = envelope.Sum();
-
-            if (sum > 0.0)
-            {
-                for (int i = 0; i < envelope.Length; i++)
-                    envelope[i] /= sum;
-            }
-
-            return envelope;
-        }
-
-        private static PeakHit FindHighestPeak(double[] mzArray, double[] intensityArray, double minMz, double maxMz)
-        {
-            int start = LowerBound(mzArray, minMz);
-            PeakHit best = null;
-
-            for (int i = start; i < mzArray.Length; i++)
-            {
-                if (mzArray[i] > maxMz)
-                    break;
-
-                if (mzArray[i] < minMz)
-                    continue;
-
-                if (best == null || intensityArray[i] > best.Intensity)
-                {
-                    best = new PeakHit
-                    {
-                        Index = i,
-                        Mz = mzArray[i],
-                        Intensity = intensityArray[i]
-                    };
-                }
-            }
-
-            return best;
-        }
-
-        private static int LowerBound(double[] array, double value)
-        {
-            int left = 0;
-            int right = array.Length;
-
-            while (left < right)
-            {
-                int mid = left + (right - left) / 2;
-
-                if (array[mid] < value)
-                    left = mid + 1;
-                else
-                    right = mid;
-            }
-
-            return left;
         }
 
         private static void WriteEvidence(string path, List<EnvelopeHit> hits)
@@ -766,7 +1221,7 @@ namespace DeconvRawDiscovery
         {
             using (var writer = new StreamWriter(path))
             {
-                writer.WriteLine("Scan\tRT\tMass\tMedianPpmError\tScanEnvelopeIntensity\tMaxChargeEnvelopeIntensity\tBestCharge\tBestChargeCosine\tMinCharge\tMaxCharge\tChargeCount\tEvidenceCount");
+                writer.WriteLine("Scan\tRT\tMass\tMedianPpmError\tScanEnvelopeIntensity\tMaxChargeEnvelopeIntensity\tBestCharge\tBestChargeCosine\tMedianIsotopeCosine\tMedianMatchedIsotopes\tMinCharge\tMaxCharge\tChargeCount\tChargeContinuity\tEvidenceCount");
 
                 foreach (ScanSummary s in scanSummaries.OrderBy(s => s.Mass).ThenBy(s => s.Scan))
                 {
@@ -779,78 +1234,65 @@ namespace DeconvRawDiscovery
                         s.MaxChargeEnvelopeIntensity.ToString("G17", CultureInfo.InvariantCulture) + "\t" +
                         s.BestCharge.ToString(CultureInfo.InvariantCulture) + "\t" +
                         s.BestChargeCosine.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        s.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        s.MedianMatchedIsotopes.ToString(CultureInfo.InvariantCulture) + "\t" +
                         s.MinCharge.ToString(CultureInfo.InvariantCulture) + "\t" +
                         s.MaxCharge.ToString(CultureInfo.InvariantCulture) + "\t" +
                         s.ChargeCount.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        s.ChargeContinuity.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
                         s.EvidenceCount.ToString(CultureInfo.InvariantCulture)
                     );
                 }
             }
         }
 
-        private static void WriteFeatureSummary(string path, List<FeatureGroup> features)
+        private static void WriteFeatureSummary(string path, List<FeatureGroup> features, bool rejected)
         {
             using (var writer = new StreamWriter(path))
             {
-                writer.WriteLine("FeatureIndex\tMonoisotopicMass\tStartRetentionTime\tEndRetentionTime\tApexRetentionTime\tSumIntensity\tMaxScanIntensity\tMinCharge\tMaxCharge\tChargeCount\tMatchedScans\tMedianPpmError");
+                string header = "FeatureIndex\tMonoisotopicMass\tStartRetentionTime\tEndRetentionTime\tApexRetentionTime\tTraceLengthSeconds\tSumIntensity\tMaxScanIntensity\tMinCharge\tMaxCharge\tChargeCount\tChargeContinuity\tMatchedScans\tScanSpan\tSampleRate\tMedianPpmError\tPpmMAD\tMedianIsotopeCosineScore\tBestIsotopeCosineScore\tMedianMatchedIsotopes\tApexDominance\tFeatureScore";
+
+                if (rejected)
+                {
+                    header += "\tRejectReason";
+                }
+
+                writer.WriteLine(header);
 
                 foreach (FeatureGroup f in features)
-                    WriteFeatureLine(writer, f, "");
+                {
+                    string line =
+                        f.FeatureIndex.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.Mass.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.StartRt.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.EndRt.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.ApexRt.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.TraceLengthSeconds.ToString("F3", CultureInfo.InvariantCulture) + "\t" +
+                        f.SumIntensity.ToString("G17", CultureInfo.InvariantCulture) + "\t" +
+                        f.MaxScanIntensity.ToString("G17", CultureInfo.InvariantCulture) + "\t" +
+                        f.MinCharge.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.MaxCharge.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.ChargeCount.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.ChargeContinuity.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.MatchedScans.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.ScanSpan.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.SampleRate.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.MedianPpmError.ToString("F4", CultureInfo.InvariantCulture) + "\t" +
+                        f.PpmMad.ToString("F4", CultureInfo.InvariantCulture) + "\t" +
+                        f.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.BestIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.MedianMatchedIsotopes.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.ApexDominance.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.FeatureScore.ToString("F6", CultureInfo.InvariantCulture);
+
+                    if (rejected)
+                    {
+                        line += "\t" + f.RejectReason;
+                    }
+
+                    writer.WriteLine(line);
+                }
             }
-        }
-
-        private static void WriteRejectedFeatureSummary(string path, List<FeatureGroup> features)
-        {
-            using (var writer = new StreamWriter(path))
-            {
-                writer.WriteLine("FeatureIndex\tMonoisotopicMass\tStartRetentionTime\tEndRetentionTime\tApexRetentionTime\tSumIntensity\tMaxScanIntensity\tMinCharge\tMaxCharge\tChargeCount\tMatchedScans\tMedianPpmError\tRejectReason");
-
-                foreach (FeatureGroup f in features)
-                    WriteFeatureLine(writer, f, f.RejectReason);
-            }
-        }
-
-        private static void WriteFeatureLine(StreamWriter writer, FeatureGroup f, string rejectReason)
-        {
-            List<ScanSummary> scans = f.Scans.OrderBy(s => s.Scan).ToList();
-
-            if (scans.Count == 0)
-                return;
-
-            double sumIntensity = scans.Sum(s => s.ScanEnvelopeIntensity);
-            ScanSummary apex = scans.OrderByDescending(s => s.ScanEnvelopeIntensity).First();
-
-            int minCharge = scans.Min(s => s.MinCharge);
-            int maxCharge = scans.Max(s => s.MaxCharge);
-
-            List<int> allCharges = new List<int>();
-            foreach (ScanSummary s in scans)
-            {
-                for (int z = s.MinCharge; z <= s.MaxCharge; z++)
-                    allCharges.Add(z);
-            }
-
-            int chargeCount = allCharges.Distinct().Count();
-            double medianPpm = Median(scans.Select(s => s.MedianPpmError).ToList());
-
-            string line =
-                f.FeatureIndex.ToString(CultureInfo.InvariantCulture) + "\t" +
-                f.Mass.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
-                scans.First().Rt.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
-                scans.Last().Rt.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
-                apex.Rt.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
-                sumIntensity.ToString("G17", CultureInfo.InvariantCulture) + "\t" +
-                apex.ScanEnvelopeIntensity.ToString("G17", CultureInfo.InvariantCulture) + "\t" +
-                minCharge.ToString(CultureInfo.InvariantCulture) + "\t" +
-                maxCharge.ToString(CultureInfo.InvariantCulture) + "\t" +
-                chargeCount.ToString(CultureInfo.InvariantCulture) + "\t" +
-                scans.Count.ToString(CultureInfo.InvariantCulture) + "\t" +
-                medianPpm.ToString("F4", CultureInfo.InvariantCulture);
-
-            if (!string.IsNullOrEmpty(rejectReason))
-                line += "\t" + rejectReason;
-
-            writer.WriteLine(line);
         }
 
         private static double Cosine(double[] observed, double[] theoretical)
@@ -868,17 +1310,14 @@ namespace DeconvRawDiscovery
                 b += theoretical[i] * theoretical[i];
             }
 
-            if (a <= 0.0 || b <= 0.0)
-                return 0.0;
+            if (a <= 0.0 || b <= 0.0) return 0.0;
 
             return dot / Math.Sqrt(a * b);
         }
 
         private static double PpmError(double observed, double expected)
         {
-            if (expected == 0.0 || double.IsNaN(observed) || double.IsNaN(expected))
-                return double.NaN;
-
+            if (expected == 0.0 || double.IsNaN(observed) || double.IsNaN(expected)) return double.NaN;
             return (observed - expected) / expected * 1e6;
         }
 
@@ -886,15 +1325,43 @@ namespace DeconvRawDiscovery
         {
             List<double> clean = values.Where(v => !double.IsNaN(v)).OrderBy(v => v).ToList();
 
-            if (clean.Count == 0)
-                return double.NaN;
+            if (clean.Count == 0) return double.NaN;
 
             int mid = clean.Count / 2;
 
-            if (clean.Count % 2 == 1)
-                return clean[mid];
+            if (clean.Count % 2 == 1) return clean[mid];
 
             return 0.5 * (clean[mid - 1] + clean[mid]);
+        }
+
+        private static double MedianAbsoluteDeviation(List<double> values)
+        {
+            List<double> clean = values.Where(v => !double.IsNaN(v)).ToList();
+
+            if (clean.Count == 0) return double.NaN;
+
+            double med = Median(clean);
+            List<double> deviations = clean.Select(v => Math.Abs(v - med)).ToList();
+
+            return Median(deviations);
+        }
+
+        private static void ReportProgress()
+        {
+            int done = Interlocked.Increment(ref ProgressDone);
+            int percent = (int)((done * 100L) / Math.Max(1, ProgressTotal));
+
+            if (percent != ProgressLastPercent)
+            {
+                lock (ProgressLock)
+                {
+                    if (percent != ProgressLastPercent)
+                    {
+                        ProgressLastPercent = percent;
+                        PrintProgress(percent);
+                    }
+                }
+            }
         }
 
         private static void PrintProgress(int percent)
