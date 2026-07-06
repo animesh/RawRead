@@ -1,13 +1,6 @@
 ## Prerequisites
 * [Mono](http://www.mono-project.com/download/stable/#download-lin) 
 * RawFileReader from [Planet Orbitrap](http://planetorbitrap.com/rawfilereader) or [email](https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=jim.Shofstahl@thermofisher.com&su=Access%20to%20RawFileReader%20from%20Planet%20Orbitrap)  jim.shofstahl@thermofisher.com with Subject "Access to RawFileReader"
-### Example
-* mono RawRead.exe 171010_Ip_Hela_ugi.raw (for all scans)
-* mono RawRead.exe <... rawFile> 0 2 (for profile scans with charge state > 1)
-#### Compare results
-```bash
-awk -F '\t' '{print $1" "$6}' 171010_Ip_Hela_ugi.rawCombined/combined/txt/proteinGroups.txt | less
-awk -F '\t' '{print $16}' 171010_Ip_Hela_ugi.raw.intensity0.charge0-comet-human.txt | less
 
 ## inspect DLLs
 mcs InspectThermoDlls.cs -out:InspectThermoDlls.exe
@@ -46,12 +39,47 @@ Run example:
 mono deconvRaw.exe 260629_Solveig_3_IgG.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 3 300 8 20.0 0.70 1.0 0.01 > log.txt 2>&1
 
 Main change:
-PreferredMonoisotopicMass is no longer selected as lowest or highest anchor. The code now carries observed isotope-envelope apex index and ppm error into feature/anchor evidence, then selects the supported anchor with the best apex-isotope agreement using expected apex ~= round(mass/1800), followed by ppm-centering. This should select ~22572.99 for IgG and ~22574.01 for 3_L.
+PreferredMonoisotopicMass is no longer selected as lowest or highest anchor. The code now carries observed isotope-envelope apex index and ppm error into feature/anchor evidence, then selects the supported anchor with the best apex-isotope agreement using expected apex ~= round(mass/1800), followed by ppm-centering. This should select ~22572.99 for IgG and ~22574.01 for 3_L. Diagnostic columns include WeightedAbsPpmError, ObservedApexIsotopeIndex, ExpectedApexIsotopeIndex, and ApexIsotopeDelta.
 
-New diagnostic columns include WeightedAbsPpmError, ObservedApexIsotopeIndex, ExpectedApexIsotopeIndex, and ApexIsotopeDelta.
+
+New full-auto mode: Manual mode still works as before.
+
+mono deconvRaw.exe 260629_Solveig_3_IgA.raw auto > IgA_auto_log.txt 2>&1
+
+Tune-only mode:
+
+mono deconvRaw.exe 260629_Solveig_3_IgA.raw auto-tune-only > IgA_auto_tune.txt 2>&1
+
+
+The auto prescan samples MS1 scans, estimates peak intensity percentiles, builds a rough neutral-mass histogram from sampled centroid peaks over broad charges, infers mass/charge/RT/intensity settings, prints #auto... lines, then runs the existing discovery pipeline.
+- Auto mode becomes broad/permissive: 8000-60000 Da, charge 5-40, minSeed 50000, minEnvelope 1000000, minCos 0.75, maxGap 10, minChargeCount 1.
+- After the normal seed-driven pass, auto mode builds candidate anchor targets from scan summaries, including isotope-offset-normalized masses.
+- A second anchored pass scans those targets directly across RAW scans using Parallel.ForEach with the existing thread count.
+- The anchored scan summaries are merged before global feature building.
+
+This is intended to recover weak IgA-like signals that appear as sparse scan-level hits but do not become stable seed-driven features.
+
+```
+mono deconvRaw.exe 260629_Solveig_3_IgA.raw \
+  23000 23600 \
+  12 34 \
+  10 \
+  50000 \
+  1000000 \
+  0.75 \
+  4 \
+  2 \
+  10 \
+  55 \
+  > IgA_targeted_permissive_log.txt 2>&1
+```
 
 ### Output to check:
-*.discovery.deconv_masses.tsv
+```
+grep -E "23492|23494|23397|23429|23413|23430|23490|23493" \
+  260629_Solveig_3_IgA.raw.discovery.deconv_masses.tsv
+1       23495.474829    23493.472987    23492.487253    23499.488961    7.001708        1       isotope-anchor ambiguous collapsed feature; PreferredMonoisotopicMass selected by apex-isotope and ppm-centering        28.304677   29.355650       28.707550       63.058  138622998.66210938      20700591.65234375       20      25      6       1.000000        34      61      0.557377        -0.7562 1.9549  2.7688  0.760670        0.808051   32       13      13      0.000   0.149330        0.603144        8       0;1;2;-1;3;-2;4;-3      1
+```
 
 
 ## countIons (per-scan TSV + targeted TIC accumulation)

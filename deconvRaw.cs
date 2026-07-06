@@ -1,5 +1,6 @@
-// compile: mcs deconvRaw.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:deconvRaw.exe
-// run IgG/IgL 18-25 kDa discovery: mono deconvRaw.exe 260629_Solveig_3_IgG.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 3 300 8 20.0 0.70 1.0 0.01 > log.txt 2>&1
+//compile: mcs deconvRaw.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:deconvRaw.exe
+//windows with dotnet: c:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe deconvRaw.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:deconvRaw.exe
+// run IgA auto discovery: mono deconvRaw.exe 260629_Solveig_3_IgA.raw auto > IgA_auto_v2_log.txt 2>&1
 // args: rawFile minMass maxMass minCharge maxCharge ppmTolerance minSeedIntensity minEnvelopeIntensity minCos minMatchedIsotopes minFeatureScans maxGapScans maxSeedIsotopeIndex threads writeEvidence minRt maxRt minMz maxMz minTraceLengthSeconds minSampleRate minChargeCount minFeatureScore seedIsoWindow maxSeedPeaks isotopeCollapseMaxShift collapseApexToleranceMin collapseRtOverlapFraction sameMassRtGapMin weakSameMassRelativeIntensity
 
 using System;
@@ -67,6 +68,25 @@ namespace DeconvRawDiscovery
             public double ApexDominance; public double FeatureScore;
         }
 
+
+        private class AutoTuneResult
+        {
+            public int PrescanScans;
+            public double PeakP99; public double PeakP995; public double PeakP999; public double PeakMax;
+            public double MinMass; public double MaxMass; public int MinCharge; public int MaxCharge;
+            public double MinRt; public double MaxRt; public double MinMz; public double MaxMz;
+            public double PpmTolerance; public double MinSeedIntensity; public double MinEnvelopeIntensity; public double MinCos;
+            public int MinMatchedIsotopes; public int MinFeatureScans; public int MaxGapScans; public int MaxSeedIsotopeIndex;
+            public int SeedIsoWindow; public int MaxSeedPeaks; public int MinChargeCount; public double MinFeatureScore;
+            public string MassBandSummary; public string ChargeSummary; public string RtSummary;
+        }
+
+
+        private class AnchorTarget
+        {
+            public double Mass; public double RtMin; public double RtMax; public int MinCharge; public int MaxCharge; public double Score;
+        }
+
         static void Main(string[] args)
         {
             if (args.Length < 1 || !File.Exists(args[0]))
@@ -77,11 +97,38 @@ namespace DeconvRawDiscovery
             }
 
             string rawPath = args[0];
-            double minMass = ParseD(args, 1, 10000.0), maxMass = ParseD(args, 2, 100000.0), ppmTolerance = ParseD(args, 5, 10.0), minSeedIntensity = ParseD(args, 6, 1000000.0), minEnvelopeIntensity = ParseD(args, 7, 10000000.0), minCos = ParseD(args, 8, 0.85);
-            int minCharge = ParseI(args, 3, 1), maxCharge = ParseI(args, 4, 80), minMatchedIsotopes = ParseI(args, 9, 5), minFeatureScans = ParseI(args, 10, 3), maxGapScans = ParseI(args, 11, 2), maxSeedIso = ParseI(args, 12, 45), threads = ParseI(args, 13, 0), writeEvidenceInt = ParseI(args, 14, 0);
-            double minRt = ParseD(args, 15, -1.0), maxRt = ParseD(args, 16, -1.0), minMz = ParseD(args, 17, -1.0), maxMz = ParseD(args, 18, -1.0), minTraceSeconds = ParseD(args, 19, 0.0), minSampleRate = ParseD(args, 20, 0.05), minFeatureScore = ParseD(args, 22, 0.0);
-            int minChargeCount = ParseI(args, 21, 1), seedIsoWindow = ParseI(args, 23, 3), maxSeedPeaks = ParseI(args, 24, 300), isotopeCollapseMaxShift = ParseI(args, 25, 8);
-            double collapseApexToleranceMin = ParseD(args, 26, 20.0), collapseRtOverlapFraction = ParseD(args, 27, 0.70), sameMassRtGapMin = ParseD(args, 28, 1.0), weakSameMassRelativeIntensity = ParseD(args, 29, 0.01);
+            bool autoMode = args.Length > 1 && (string.Equals(args[1], "auto", StringComparison.OrdinalIgnoreCase) || string.Equals(args[1], "auto-subunit", StringComparison.OrdinalIgnoreCase));
+            bool autoTuneOnly = args.Length > 1 && string.Equals(args[1], "auto-tune-only", StringComparison.OrdinalIgnoreCase);
+
+            double minMass = autoMode || autoTuneOnly ? 8000.0 : ParseD(args, 1, 10000.0);
+            double maxMass = autoMode || autoTuneOnly ? 60000.0 : ParseD(args, 2, 100000.0);
+            int minCharge = autoMode || autoTuneOnly ? 6 : ParseI(args, 3, 1);
+            int maxCharge = autoMode || autoTuneOnly ? 60 : ParseI(args, 4, 80);
+            double ppmTolerance = autoMode || autoTuneOnly ? 10.0 : ParseD(args, 5, 10.0);
+            double minSeedIntensity = autoMode || autoTuneOnly ? 0.0 : ParseD(args, 6, 1000000.0);
+            double minEnvelopeIntensity = autoMode || autoTuneOnly ? 0.0 : ParseD(args, 7, 10000000.0);
+            double minCos = autoMode || autoTuneOnly ? 0.80 : ParseD(args, 8, 0.85);
+            int minMatchedIsotopes = autoMode || autoTuneOnly ? 4 : ParseI(args, 9, 5);
+            int minFeatureScans = autoMode || autoTuneOnly ? 2 : ParseI(args, 10, 3);
+            int maxGapScans = autoMode || autoTuneOnly ? 3 : ParseI(args, 11, 2);
+            int maxSeedIso = autoMode || autoTuneOnly ? 45 : ParseI(args, 12, 45);
+            int threads = autoMode || autoTuneOnly ? 0 : ParseI(args, 13, 0);
+            int writeEvidenceInt = autoMode || autoTuneOnly ? 0 : ParseI(args, 14, 0);
+            double minRt = autoMode || autoTuneOnly ? -1.0 : ParseD(args, 15, -1.0);
+            double maxRt = autoMode || autoTuneOnly ? -1.0 : ParseD(args, 16, -1.0);
+            double minMz = autoMode || autoTuneOnly ? -1.0 : ParseD(args, 17, -1.0);
+            double maxMz = autoMode || autoTuneOnly ? -1.0 : ParseD(args, 18, -1.0);
+            double minTraceSeconds = autoMode || autoTuneOnly ? 0.0 : ParseD(args, 19, 0.0);
+            double minSampleRate = autoMode || autoTuneOnly ? 0.03 : ParseD(args, 20, 0.05);
+            int minChargeCount = autoMode || autoTuneOnly ? 2 : ParseI(args, 21, 1);
+            double minFeatureScore = autoMode || autoTuneOnly ? 0.05 : ParseD(args, 22, 0.0);
+            int seedIsoWindow = autoMode || autoTuneOnly ? 3 : ParseI(args, 23, 3);
+            int maxSeedPeaks = autoMode || autoTuneOnly ? 1500 : ParseI(args, 24, 300);
+            int isotopeCollapseMaxShift = autoMode || autoTuneOnly ? 8 : ParseI(args, 25, 8);
+            double collapseApexToleranceMin = autoMode || autoTuneOnly ? 20.0 : ParseD(args, 26, 20.0);
+            double collapseRtOverlapFraction = autoMode || autoTuneOnly ? 0.70 : ParseD(args, 27, 0.70);
+            double sameMassRtGapMin = autoMode || autoTuneOnly ? 1.0 : ParseD(args, 28, 1.0);
+            double weakSameMassRelativeIntensity = autoMode || autoTuneOnly ? 0.01 : ParseD(args, 29, 0.01);
 
             if (minCharge < 1) minCharge = 1; if (maxCharge < minCharge) maxCharge = minCharge; if (threads <= 0) threads = Environment.ProcessorCount; if (threads < 1) threads = 1;
             if (seedIsoWindow < 0) seedIsoWindow = -1; if (maxSeedPeaks < 0) maxSeedPeaks = 0; if (isotopeCollapseMaxShift < 0) isotopeCollapseMaxShift = 0;
@@ -94,6 +141,18 @@ namespace DeconvRawDiscovery
             rawFile.SelectInstrument(Device.MS, 1);
             int firstScan = rawFile.RunHeaderEx.FirstSpectrum, lastScan = rawFile.RunHeaderEx.LastSpectrum, scanCount = lastScan - firstScan + 1;
 
+            if (autoMode || autoTuneOnly)
+            {
+                AutoTuneResult auto = RunAutoTune(rawPath, firstScan, lastScan, minMass, maxMass, minCharge, maxCharge, ppmTolerance);
+                minMass = auto.MinMass; maxMass = auto.MaxMass; minCharge = auto.MinCharge; maxCharge = auto.MaxCharge;
+                ppmTolerance = auto.PpmTolerance; minSeedIntensity = auto.MinSeedIntensity; minEnvelopeIntensity = auto.MinEnvelopeIntensity; minCos = auto.MinCos;
+                minMatchedIsotopes = auto.MinMatchedIsotopes; minFeatureScans = auto.MinFeatureScans; maxGapScans = auto.MaxGapScans; maxSeedIso = auto.MaxSeedIsotopeIndex;
+                minRt = auto.MinRt; maxRt = auto.MaxRt; minMz = auto.MinMz; maxMz = auto.MaxMz;
+                minChargeCount = auto.MinChargeCount; minFeatureScore = auto.MinFeatureScore; seedIsoWindow = auto.SeedIsoWindow; maxSeedPeaks = auto.MaxSeedPeaks;
+                PrintAutoTune(auto);
+                if (autoTuneOnly) { rawFile.Dispose(); return; }
+            }
+
             PrintParam("filename", rawFile.FileName); PrintParam("scans", scanCount); PrintParam("minMass", minMass); PrintParam("maxMass", maxMass); PrintParam("minCharge", minCharge); PrintParam("maxCharge", maxCharge);
             PrintParam("ppmTolerance", ppmTolerance); PrintParam("minSeedIntensity", minSeedIntensity); PrintParam("minEnvelopeIntensity", minEnvelopeIntensity); PrintParam("minCos", minCos); PrintParam("minMatchedIsotopes", minMatchedIsotopes);
             PrintParam("minFeatureScans", minFeatureScans); PrintParam("maxGapScans", maxGapScans); PrintParam("maxSeedIsotopeIndex", maxSeedIso); PrintParam("threads", threads); PrintParam("writeEvidence", writeEvidence ? 1 : 0);
@@ -104,12 +163,31 @@ namespace DeconvRawDiscovery
 
             ProgressTotal = scanCount; ProgressDone = 0; ProgressLastPercent = -1;
             List<ScanRange> ranges = BuildScanRanges(firstScan, lastScan, Math.Max(10, scanCount / Math.Max(1, threads * 8)));
+            PrintParam("workerRanges", ranges.Count);
+            PrintParam("approxScansPerRange", ranges.Count > 0 ? (ranges[0].End - ranges[0].Start + 1) : 0);
             var bag = new ConcurrentBag<WorkerResult>();
             Parallel.ForEach(ranges, new ParallelOptions { MaxDegreeOfParallelism = threads }, range =>
                 bag.Add(ProcessScanRange(rawPath, range.Start, range.End, minMass, maxMass, minCharge, maxCharge, ppmTolerance, minSeedIntensity, minEnvelopeIntensity, minCos, minMatchedIsotopes, maxSeedIso, seedIsoWindow, maxSeedPeaks, writeEvidence, minRt, maxRt, minMz, maxMz)));
             Console.WriteLine();
 
             List<ScanSummary> summaries = bag.SelectMany(x => x.Summaries).OrderBy(x => x.Mass).ThenBy(x => x.Scan).ToList();
+            if (autoMode)
+            {
+                var targets = BuildAutoAnchorTargets(summaries, minMass, maxMass, minCharge, maxCharge, minEnvelopeIntensity);
+                PrintParam("autoAnchorTargets", targets.Count);
+                if (targets.Count > 0)
+                {
+                    ProgressTotal = scanCount; ProgressDone = 0; ProgressLastPercent = -1;
+                    var anchorBag = new ConcurrentBag<WorkerResult>();
+                    Parallel.ForEach(ranges, new ParallelOptions { MaxDegreeOfParallelism = threads }, range =>
+                        anchorBag.Add(ProcessAnchoredScanRange(rawPath, range.Start, range.End, targets, ppmTolerance, minEnvelopeIntensity, minCos, minMatchedIsotopes)));
+                    Console.WriteLine();
+                    int added = anchorBag.SelectMany(x => x.Summaries).Count();
+                    summaries.AddRange(anchorBag.SelectMany(x => x.Summaries));
+                    summaries = summaries.OrderBy(x => x.Mass).ThenBy(x => x.Scan).ToList();
+                    PrintParam("autoAnchorAddedScanSummaries", added);
+                }
+            }
             List<EnvelopeHit> evidence = writeEvidence ? bag.SelectMany(x => x.Evidence).ToList() : new List<EnvelopeHit>();
             List<FeatureGroup> features = BuildGlobalFeatures(summaries, ppmTolerance, minFeatureScans, maxGapScans, minTraceSeconds, minSampleRate, minChargeCount, minFeatureScore);
             List<FeatureGroup> accepted = features.Where(f => f.Accepted).OrderByDescending(f => f.SumIntensity).ToList();
@@ -121,19 +199,202 @@ namespace DeconvRawDiscovery
 
             string prefix = rawPath + ".discovery";
             WriteFeatureSummary(prefix + ".deconv_masses.uncollapsed.tsv", accepted, false);
-            List<FeatureGroup> collapsed = CollapseIsotopeShiftedFeatures(accepted, ppmTolerance, isotopeCollapseMaxShift, collapseApexToleranceMin, collapseRtOverlapFraction);
-            collapsed = CollapseWeakSameMassFragments(collapsed, ppmTolerance, sameMassRtGapMin, weakSameMassRelativeIntensity);
-            idx = 1; foreach (FeatureGroup f in collapsed.OrderByDescending(f => f.SumIntensity)) f.FeatureIndex = idx++;
+            List<FeatureGroup> finalOutput;
+            if (autoMode)
+            {
+                // In auto/discovery mode we intentionally keep the accepted individual rows permissive.
+                // The associated-rows file below groups rows that may represent the same underlying species
+                // without hiding weak raw-data evidence inside over-broad collapsed clusters.
+                finalOutput = accepted.OrderByDescending(f => f.SumIntensity).ToList();
+                WriteAssociatedRows(prefix + ".deconv_masses.associated_rows.tsv", finalOutput, ppmTolerance, isotopeCollapseMaxShift);
+            }
+            else
+            {
+                List<FeatureGroup> collapsed = CollapseIsotopeShiftedFeatures(accepted, ppmTolerance, isotopeCollapseMaxShift, collapseApexToleranceMin, collapseRtOverlapFraction);
+                collapsed = CollapseWeakSameMassFragments(collapsed, ppmTolerance, sameMassRtGapMin, weakSameMassRelativeIntensity);
+                finalOutput = collapsed.OrderByDescending(f => f.SumIntensity).ToList();
+            }
+            idx = 1; foreach (FeatureGroup f in finalOutput) f.FeatureIndex = idx++;
             WriteScanSummary(prefix + ".scan_summary.tsv", summaries);
-            WriteFeatureSummary(prefix + ".deconv_masses.tsv", collapsed.OrderByDescending(f => f.SumIntensity).ToList(), false);
+            WriteFeatureSummary(prefix + ".deconv_masses.tsv", finalOutput, false);
             WriteFeatureSummary(prefix + ".rejected_masses.tsv", rejected, true);
             if (writeEvidence) { WriteEvidence(prefix + ".scan_evidence.tsv", evidence); Console.WriteLine("Wrote scan evidence: {0}", prefix + ".scan_evidence.tsv"); } else Console.WriteLine("Skipped scan evidence output. Set writeEvidence=1 to enable.");
             Console.WriteLine("Wrote scan summary: {0}", prefix + ".scan_summary.tsv");
-            Console.WriteLine("Wrote final isotope/same-mass collapsed deconvolved masses: {0}", prefix + ".deconv_masses.tsv");
+            Console.WriteLine(autoMode ? "Wrote final permissive auto deconvolved rows: {0}" : "Wrote final isotope/same-mass collapsed deconvolved masses: {0}", prefix + ".deconv_masses.tsv");
             Console.WriteLine("Wrote uncollapsed accepted masses: {0}", prefix + ".deconv_masses.uncollapsed.tsv");
+            if (autoMode) Console.WriteLine("Wrote auto associated rows: {0}", prefix + ".deconv_masses.associated_rows.tsv");
             Console.WriteLine("Wrote rejected masses: {0}", prefix + ".rejected_masses.tsv");
         }
 
+
+                private static AutoTuneResult RunAutoTune(string rawPath, int firstScan, int lastScan, double broadMinMass, double broadMaxMass, int broadMinCharge, int broadMaxCharge, double ppm)
+        {
+            var intensities = new List<double>();
+            int scanCount = lastScan - firstScan + 1;
+            int targetScans = Math.Min(250, Math.Max(50, scanCount / 4));
+            int step = Math.Max(1, scanCount / targetScans);
+            int usedScans = 0;
+            var raw = RawFileReaderAdapter.FileFactory(rawPath);
+            raw.SelectInstrument(Device.MS, 1);
+            try
+            {
+                for (int scan = firstScan; scan <= lastScan; scan += step)
+                {
+                    try
+                    {
+                        string ev = ""; try { ev = string.Join(" ", raw.GetScanEventForScanNumber(scan)); } catch { }
+                        if (ev.Length > 0 && (ev.IndexOf("ms", StringComparison.OrdinalIgnoreCase) < 0 || ev.IndexOf("@", StringComparison.OrdinalIgnoreCase) >= 0)) continue;
+                        CentroidStream cs = null; try { cs = raw.GetCentroidStream(scan, false); } catch { }
+                        if (cs == null || cs.Length <= 0 || cs.Intensities == null) continue;
+                        double[] it = cs.Intensities;
+                        foreach (int i in Enumerable.Range(0, it.Length).Where(i => it[i] > 0.0).OrderByDescending(i => it[i]).Take(750)) intensities.Add(it[i]);
+                        usedScans++;
+                    }
+                    catch { }
+                }
+            }
+            finally { raw.Dispose(); }
+            if (intensities.Count == 0) intensities.Add(100000.0);
+            intensities.Sort();
+            double p99 = PercentileSorted(intensities, 0.990), p995 = PercentileSorted(intensities, 0.995), p999 = PercentileSorted(intensities, 0.999), pmax = intensities[intensities.Count - 1];
+
+            // Fast permissive auto mode:
+            // first pass is broad but not ultra-low threshold, then an anchored rescue pass validates weak signals.
+            return new AutoTuneResult
+            {
+                PrescanScans = usedScans, PeakP99 = p99, PeakP995 = p995, PeakP999 = p999, PeakMax = pmax,
+                MinMass = 8000.0, MaxMass = 60000.0,
+                MinCharge = 5, MaxCharge = 40,
+                PpmTolerance = ppm,
+                MinSeedIntensity = 200000.0,
+                MinEnvelopeIntensity = 2000000.0,
+                MinCos = 0.75,
+                MinMatchedIsotopes = 4,
+                MinFeatureScans = 2,
+                MaxGapScans = 10,
+                MaxSeedIsotopeIndex = 55,
+                SeedIsoWindow = 4,
+                MaxSeedPeaks = 1200,
+                MinChargeCount = 1,
+                MinFeatureScore = 0.0,
+                MinRt = -1.0, MaxRt = -1.0, MinMz = -1.0, MaxMz = -1.0,
+                MassBandSummary = "broad_non_excluding_8000_60000_anchor_rescue_fast",
+                ChargeSummary = "5-40 broad",
+                RtSummary = "all_non_excluding"
+            };
+        }
+        private static void PrintAutoTune(AutoTuneResult a)
+        {
+            PrintParam("autoTune", 1); PrintParam("autoPrescanScans", a.PrescanScans); PrintParam("autoPeakP99", G(a.PeakP99)); PrintParam("autoPeakP995", G(a.PeakP995)); PrintParam("autoPeakP999", G(a.PeakP999)); PrintParam("autoPeakMax", G(a.PeakMax));
+            PrintParam("autoMassBand", a.MassBandSummary); PrintParam("autoChargeBand", a.ChargeSummary); PrintParam("autoRtBand", a.RtSummary);
+            PrintParam("autoInferredMinMass", a.MinMass); PrintParam("autoInferredMaxMass", a.MaxMass); PrintParam("autoInferredMinCharge", a.MinCharge); PrintParam("autoInferredMaxCharge", a.MaxCharge);
+            PrintParam("autoInferredMinRt", a.MinRt); PrintParam("autoInferredMaxRt", a.MaxRt); PrintParam("autoInferredMinSeedIntensity", a.MinSeedIntensity); PrintParam("autoInferredMinEnvelopeIntensity", a.MinEnvelopeIntensity);
+            PrintParam("autoInferredMinCos", a.MinCos); PrintParam("autoInferredMinMatchedIsotopes", a.MinMatchedIsotopes); PrintParam("autoInferredMinFeatureScans", a.MinFeatureScans); PrintParam("autoInferredMinChargeCount", a.MinChargeCount); PrintParam("autoInferredMaxSeedPeaks", a.MaxSeedPeaks);
+        }
+
+        private static double PercentileSorted(List<double> sorted, double p) { if (sorted.Count == 0) return double.NaN; double x = p * (sorted.Count - 1); int i = (int)Math.Floor(x); int j = Math.Min(sorted.Count - 1, i + 1); double f = x - i; return sorted[i] * (1.0 - f) + sorted[j] * f; }
+        private static double Clamp(double x, double lo, double hi) { if (double.IsNaN(x)) return lo; if (x < lo) return lo; if (x > hi) return hi; return x; }
+        private static double NiceNumber(double x) { if (x <= 0.0 || double.IsNaN(x)) return 0.0; double e = Math.Pow(10.0, Math.Floor(Math.Log10(x))); double m = x / e; double n = m <= 1.5 ? 1.0 : (m <= 3.5 ? 2.0 : (m <= 7.5 ? 5.0 : 10.0)); return n * e; }
+        private static List<AnchorTarget> BuildAutoAnchorTargets(
+            List<ScanSummary> summaries,
+            double minMass,
+            double maxMass,
+            int globalMinCharge,
+            int globalMaxCharge,
+            double minEnv)
+        {
+            var bins = new Dictionary<int, List<ScanSummary>>();
+            double minTargetEnv = Math.Max(1000000.0, minEnv * 0.75);
+            foreach (ScanSummary ss in summaries)
+            {
+                if (ss.Mass < minMass || ss.Mass > maxMass) continue;
+                if (ss.ScanEnvelopeIntensity < minTargetEnv) continue;
+                if (ss.MedianIsotopeCosine < 0.74) continue;
+                for (int off = -8; off <= 8; off++)
+                {
+                    double m = ss.Mass - off * C13MinusC12;
+                    if (m < minMass || m > maxMass) continue;
+                    int bin = (int)Math.Round(m / 0.25);
+                    List<ScanSummary> list;
+                    if (!bins.TryGetValue(bin, out list)) { list = new List<ScanSummary>(); bins[bin] = list; }
+                    list.Add(ss);
+                }
+            }
+            var allTargets = new List<AnchorTarget>();
+            foreach (var kv in bins)
+            {
+                var list = kv.Value;
+                int scans = list.Select(x => x.Scan).Distinct().Count();
+                if (scans < 2) continue;
+                double score = list.Sum(x => x.ScanEnvelopeIntensity) * Math.Sqrt(scans) * Math.Max(0.25, Median(list.Select(x => x.MedianIsotopeCosine).ToList()));
+                double mass = kv.Key * 0.25;
+                double rtMin = list.Min(x => x.Rt) - 1.5;
+                double rtMax = list.Max(x => x.Rt) + 1.5;
+                int zMin = Math.Max(globalMinCharge, list.Min(x => x.MinCharge) - 4);
+                int zMax = Math.Min(globalMaxCharge, list.Max(x => x.MaxCharge) + 6);
+                if (zMax < zMin) { zMin = globalMinCharge; zMax = globalMaxCharge; }
+                allTargets.Add(new AnchorTarget { Mass = mass, RtMin = rtMin, RtMax = rtMax, MinCharge = zMin, MaxCharge = zMax, Score = score });
+            }
+
+            // Keep targets broadly distributed by mass so strong low-mass bands do not crowd out weaker IgA-like bands.
+            var balanced = new List<AnchorTarget>();
+            foreach (var group in allTargets.GroupBy(t => (int)Math.Floor(t.Mass / 1000.0)).OrderBy(g => g.Key))
+                balanced.AddRange(group.OrderByDescending(t => t.Score).Take(8));
+
+            return balanced.OrderByDescending(t => t.Score).Take(160).ToList();
+        }
+
+        private static WorkerResult ProcessAnchoredScanRange(
+            string rawPath,
+            int startScan,
+            int endScan,
+            List<AnchorTarget> targets,
+            double ppm,
+            double minEnv,
+            double minCos,
+            int minIso)
+        {
+            WorkerResult result = new WorkerResult();
+            var raw = RawFileReaderAdapter.FileFactory(rawPath);
+            if (!raw.IsOpen || raw.IsError) return result;
+            raw.SelectInstrument(Device.MS, 1);
+            double rescueMinEnv = Math.Max(1000000.0, minEnv * 0.5);
+            try
+            {
+                for (int scan = startScan; scan <= endScan; scan++)
+                {
+                    try
+                    {
+                        double rt = raw.RetentionTimeFromScanNumber(scan);
+                        string ev = ""; try { ev = string.Join(" ", raw.GetScanEventForScanNumber(scan)); } catch { }
+                        if (ev.Length > 0 && (ev.IndexOf("ms", StringComparison.OrdinalIgnoreCase) < 0 || ev.IndexOf("@", StringComparison.OrdinalIgnoreCase) >= 0)) { ReportProgress(); continue; }
+                        var active = targets.Where(t => rt >= t.RtMin && rt <= t.RtMax).ToList();
+                        if (active.Count == 0) { ReportProgress(); continue; }
+                        CentroidStream cs = null; try { cs = raw.GetCentroidStream(scan, false); } catch { }
+                        if (cs == null || cs.Length <= 0 || cs.Masses == null || cs.Intensities == null) { ReportProgress(); continue; }
+                        var hits = new List<EnvelopeHit>();
+                        dynamic stats = raw.GetScanStatsForScanNumber(scan);
+                        foreach (AnchorTarget t in active)
+                        {
+                            for (int z = t.MinCharge; z <= t.MaxCharge; z++)
+                            {
+                                for (int local = -1; local <= 1; local++)
+                                {
+                                    double cm = t.Mass + local * C13MinusC12;
+                                    EnvelopeHit h = TryMatchEnvelope(scan, rt, stats, cm, z, ExpectedApexIsotopeIndex(cm), cs.Masses, cs.Intensities, ppm, rescueMinEnv, minCos, minIso);
+                                    if (h != null) hits.Add(h);
+                                }
+                            }
+                        }
+                        if (hits.Count > 0) result.Summaries.AddRange(CollapseScanHits(hits, ppm));
+                    }
+                    catch (Exception ex) { Console.Error.WriteLine("Warning: failed anchored scan {0}: {1}", scan, ex.Message); }
+                    ReportProgress();
+                }
+            }
+            finally { raw.Dispose(); }
+            return result;
+        }
         private static int ParseI(string[] a, int i, int d) { int v; return a.Length > i && int.TryParse(a[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out v) ? v : d; }
         private static double ParseD(string[] a, int i, double d) { double v; return a.Length > i && double.TryParse(a[i], NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : d; }
         private static void PrintParam(string name, object value) { Console.WriteLine("#{0}:\t{1}", name, Convert.ToString(value, CultureInfo.InvariantCulture)); }
@@ -449,6 +710,57 @@ private static AnchorEvidence SelectPreferredAnchor(List<AnchorEvidence> anchors
         private static double Clamp01(double x) { if (double.IsNaN(x) || x < 0.0) return 0.0; if (x > 1.0) return 1.0; return x; }
         private static double WeightedMeanMassFromScans(List<ScanSummary> scans) { double t = scans.Sum(s => s.ScanEnvelopeIntensity); return t > 0.0 ? scans.Sum(s => s.Mass * s.ScanEnvelopeIntensity) / t : scans.Average(s => s.Mass); }
         private static double WeightedAverageFeatureValue(List<FeatureGroup> c, Func<FeatureGroup, double> sel) { double w = 0.0, v = 0.0; foreach (FeatureGroup f in c) { double x = sel(f); if (double.IsNaN(x)) continue; double ww = Math.Max(1.0, f.SumIntensity); v += x * ww; w += ww; } return w > 0.0 ? v / w : double.NaN; }
+
+        private static void WriteAssociatedRows(string path, List<FeatureGroup> features, double ppm, int maxShift)
+        {
+            var sorted = features.OrderByDescending(f => f.SumIntensity).ToList();
+            int n = sorted.Count;
+            int[] parent = new int[n];
+            for (int i = 0; i < n; i++) parent[i] = i;
+            Func<int, int> find = null;
+            find = delegate(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+            Action<int, int> unite = delegate(int a, int b) { int ra = find(a), rb = find(b); if (ra != rb) parent[rb] = ra; };
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = i + 1; j < n; j++)
+                {
+                    if (RetentionTimeOverlapFraction(sorted[i], sorted[j]) < 0.20 && Math.Abs(sorted[i].ApexRt - sorted[j].ApexRt) > 2.0) continue;
+                    if (!ChargeRangesOverlap(sorted[i], sorted[j])) continue;
+                    double d = sorted[j].Mass - sorted[i].Mass;
+                    int off = (int)Math.Round(d / C13MinusC12);
+                    bool isotopeRelated = Math.Abs(off) <= Math.Max(0, maxShift) && Math.Abs(d - off * C13MinusC12) <= Math.Max(0.05, sorted[i].Mass * ppm / 1e6);
+                    bool sameMass = Math.Abs(PpmError(sorted[j].Mass, sorted[i].Mass)) <= ppm;
+                    if (isotopeRelated || sameMass) unite(i, j);
+                }
+            }
+            var groups = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int r = find(i);
+                List<int> list;
+                if (!groups.TryGetValue(r, out list)) { list = new List<int>(); groups[r] = list; }
+                list.Add(i);
+            }
+            var ordered = groups.Values.OrderByDescending(g => g.Max(i => sorted[i].SumIntensity)).ToList();
+            var groupIndex = new Dictionary<int, int>();
+            for (int gi = 0; gi < ordered.Count; gi++) foreach (int i in ordered[gi]) groupIndex[i] = gi + 1;
+            using (var w = new StreamWriter(path))
+            {
+                w.WriteLine("CandidateGroupIndex\tCandidateGroupFeatureCount\tCandidateGroupRepresentativeMass\tCandidateGroupMassMin\tCandidateGroupMassMax\tCandidateGroupMassSpanDa\tIsotopeOffsetToGroupRepresentative\tCandidateGroupNote\tFeatureIndex\tReportedMonoisotopicMass\tPreferredMonoisotopicMass\tStartRetentionTime\tEndRetentionTime\tApexRetentionTime\tSumIntensity\tMinCharge\tMaxCharge\tChargeCount\tMatchedScans\tMedianPpmError\tWeightedAbsPpmError\tMedianIsotopeCosineScore\tBestIsotopeCosineScore\tMedianMatchedIsotopes\tFeatureScore");
+                foreach (var g in ordered)
+                {
+                    FeatureGroup rep = g.Select(i => sorted[i]).OrderByDescending(f => f.SumIntensity).First();
+                    double gMin = g.Min(i => sorted[i].Mass), gMax = g.Max(i => sorted[i].Mass);
+                    foreach (int i in g.OrderByDescending(i => sorted[i].SumIntensity))
+                    {
+                        FeatureGroup f = sorted[i];
+                        int off = (int)Math.Round((f.Mass - rep.Mass) / C13MinusC12);
+                        string note = g.Count > 1 ? "Rows in this group may represent the same underlying species observed as different isotope-anchor/charge/RT-fragment interpretations; auto mode keeps rows separate to avoid hiding weak raw-data evidence." : "Single permissive auto-discovery row.";
+                        w.WriteLine(Join(groupIndex[i], g.Count, F(rep.Mass), F(gMin), F(gMax), F(gMax - gMin), off, Safe(note), f.FeatureIndex, F(f.Mass), F(f.PreferredMass), F(f.StartRt), F(f.EndRt), F(f.ApexRt), G(f.SumIntensity), f.MinCharge, f.MaxCharge, f.ChargeCount, f.MatchedScans, f.MedianPpmError.ToString("F4", CultureInfo.InvariantCulture), f.WeightedAbsPpmError.ToString("F4", CultureInfo.InvariantCulture), f.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), f.BestIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), f.MedianMatchedIsotopes, f.FeatureScore.ToString("F6", CultureInfo.InvariantCulture)));
+                    }
+                }
+            }
+        }
 
         private static void WriteEvidence(string path, List<EnvelopeHit> hits) { using (var w = new StreamWriter(path)) { w.WriteLine("Scan\tRT\tCandidateMass\tObservedMass\tPpmError\tCharge\tSeedIsotopeIndex\tBaseMz\tEnvelopeIntensity\tMaxIsotopeIntensity\tApexIsotopeIndex\tMatchedIsotopeCount\tTotalIsotopeCount\tIsotopeCosineScore\tBasePeakMass\tTIC"); foreach (EnvelopeHit h in hits.OrderBy(h => h.ObservedMass).ThenBy(h => h.Scan).ThenBy(h => h.Charge)) w.WriteLine(Join(h.Scan, F(h.Rt), F(h.CandidateMass), F(h.ObservedMass), h.PpmError.ToString("F4", CultureInfo.InvariantCulture), h.Charge, h.SeedIsotopeIndex, F(h.BaseMz), G(h.EnvelopeIntensity), G(h.MaxIsotopeIntensity), h.ApexIsotopeIndex, h.MatchedIsotopeCount, h.TotalIsotopeCount, h.IsotopeCosineScore.ToString("F6", CultureInfo.InvariantCulture), G(h.BasePeakMass), G(h.Tic))); } }
         private static void WriteScanSummary(string path, List<ScanSummary> s) { using (var w = new StreamWriter(path)) { w.WriteLine("Scan\tRT\tMass\tMedianPpmError\tWeightedAbsPpmError\tScanEnvelopeIntensity\tMaxChargeEnvelopeIntensity\tBestCharge\tBestChargeCosine\tMedianIsotopeCosine\tMedianMatchedIsotopes\tBestApexIsotopeIndex\tExpectedApexIsotopeIndex\tApexIsotopeDelta\tMinCharge\tMaxCharge\tChargeCount\tChargeContinuity\tEvidenceCount"); foreach (ScanSummary x in s.OrderBy(x => x.Mass).ThenBy(x => x.Scan)) w.WriteLine(Join(x.Scan, F(x.Rt), F(x.Mass), x.MedianPpmError.ToString("F4", CultureInfo.InvariantCulture), x.WeightedAbsPpmError.ToString("F4", CultureInfo.InvariantCulture), G(x.ScanEnvelopeIntensity), G(x.MaxChargeEnvelopeIntensity), x.BestCharge, x.BestChargeCosine.ToString("F6", CultureInfo.InvariantCulture), x.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), x.MedianMatchedIsotopes, x.BestApexIsotopeIndex, x.ExpectedApexIsotopeIndex, x.ApexIsotopeDelta.ToString("F3", CultureInfo.InvariantCulture), x.MinCharge, x.MaxCharge, x.ChargeCount, x.ChargeContinuity.ToString("F6", CultureInfo.InvariantCulture), x.EvidenceCount)); } }
