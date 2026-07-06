@@ -13,6 +13,22 @@ awk -F '\t' '{print $16}' 171010_Ip_Hela_ugi.raw.intensity0.charge0-comet-human.
 mcs InspectThermoDlls.cs -out:InspectThermoDlls.exe
 mono InspectThermoDlls.exe .
 
+## deconvRaw.cs (profile mode de-convolve)
+Main changes included: parallel RAW scan processing; strongest seed peak pruning; isotope apex seed window; cached averagine isotope envelopes; isotope-offset feature collapse; weak same-mass RT fragment collapse; explicit ambiguity output headers: ReportedMonoisotopicMass, PreferredMonoisotopicMass, RawMergedMassMin, RawMergedMassMax, RawMergedMassSpanDa, IsotopeAnchorAmbiguous, MassInterpretation.
+ 
+### Compile:
+mcs deconvRaw.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:deconvRaw.exe
+
+### Run IgL discovery:
+mono deconvRaw.exe 260629_Solveig_3_L.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 3 300 8 20.0 0.70 1.0 0.01 > log.txt 2>&1
+
+### Args:
+rawFile minMass maxMass minCharge maxCharge ppmTolerance minSeedIntensity minEnvelopeIntensity minCos minMatchedIsotopes minFeatureScans maxGapScans maxSeedIsotopeIndex threads writeEvidence minRt maxRt minMz maxMz minTraceLengthSeconds minSampleRate minChargeCount minFeatureScore seedIsoWindow maxSeedPeaks isotopeCollapseMaxShift collapseApexToleranceMin collapseRtOverlapFraction sameMassRtGapMin weakSameMassRelativeIntensity
+
+### Output to check:
+*.discovery.deconv_masses.tsv
+
+
 ## countIons (per-scan TSV + targeted TIC accumulation)
 
 This repository includes `countIons.cs` (compiled to `countIons.exe`) — a helper that writes a compact per-scan TSV next to a Thermo RAW file and can accumulate targeted TIC values from a user-supplied CSV of targets.
