@@ -1,7 +1,8 @@
 // compile: mcs deconvRaw.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:deconvRaw.exe
-// run IgL 18-25 kDa: mono deconvRaw.exe 260629_Solveig_3_L.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 > log.txt 2>&1
-// args: rawFile minMass maxMass minCharge maxCharge ppmTolerance minSeedIntensity minEnvelopeIntensity minCos minMatchedIsotopes minFeatureScans maxGapScans maxSeedIsotopeIndex threads writeEvidence minRt maxRt minMz maxMz minTraceLengthSeconds minSampleRate minChargeCount minFeatureScore
-
+// run IgL fast discovery: mono deconvRaw.exe 260629_Solveig_3_L.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 3 300 8 0.30 0.70 > log.txt 2>&1
+// args: rawFile minMass maxMass minCharge maxCharge ppmTolerance minSeedIntensity minEnvelopeIntensity minCos minMatchedIsotopes minFeatureScans maxGapScans maxSeedIsotopeIndex threads writeEvidence minRt maxRt minMz maxMz minTraceLengthSeconds minSampleRate minChargeCount minFeatureScore seedIsoWindow maxSeedPeaks isotopeCollapseMaxShift collapseApexToleranceMin collapseRtOverlapFraction
+// column -t -s $'\t' 260629_Solveig_3_L.raw.discovery.deconv_masses.tsv | grep "22577."
+// mono deconvRaw.exe 260629_Solveig_3_L.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 3 300 8 20.0 0.70 > log.txt 2>&1
 using System;
 using System.IO;
 using System.Linq;
@@ -19,11 +20,15 @@ namespace DeconvRawDiscovery
     {
         private const double Proton = 1.007276466812;
         private const double C13MinusC12 = 1.00335483507;
+        private const double AveragineCacheBinDa = 10.0;
 
         private static int ProgressTotal = 0;
         private static int ProgressDone = 0;
         private static int ProgressLastPercent = -1;
         private static readonly object ProgressLock = new object();
+
+        // CHANGE: cache averagine isotope envelopes so the same envelope is not rebuilt millions of times.
+        private static readonly ConcurrentDictionary<int, double[]> AveragineCache = new ConcurrentDictionary<int, double[]>();
 
         private class ScanRange
         {
@@ -86,6 +91,10 @@ namespace DeconvRawDiscovery
         private class FeatureGroup
         {
             public int FeatureIndex;
+            public int RepresentativeFeatureIndex;
+            public int MergedFeatureCount;
+            public string MergedIsotopeOffsets;
+
             public double Mass;
             public List<ScanSummary> Scans = new List<ScanSummary>();
             public bool Accepted;
@@ -118,7 +127,7 @@ namespace DeconvRawDiscovery
             if (args.Length < 1 || !File.Exists(args[0]))
             {
                 Console.WriteLine("USAGE:");
-                Console.WriteLine("{0} file.raw [minMass=10000] [maxMass=100000] [minCharge=1] [maxCharge=80] [ppmTolerance=10] [minSeedIntensity=1000000] [minEnvelopeIntensity=10000000] [minCos=0.85] [minMatchedIsotopes=5] [minFeatureScans=3] [maxGapScans=2] [maxSeedIsotopeIndex=45] [threads=0] [writeEvidence=0] [minRt=-1] [maxRt=-1] [minMz=-1] [maxMz=-1] [minTraceLengthSeconds=0] [minSampleRate=0.05] [minChargeCount=1] [minFeatureScore=0]", AppDomain.CurrentDomain.FriendlyName);
+                Console.WriteLine("{0} file.raw [minMass=10000] [maxMass=100000] [minCharge=1] [maxCharge=80] [ppmTolerance=10] [minSeedIntensity=1000000] [minEnvelopeIntensity=10000000] [minCos=0.85] [minMatchedIsotopes=5] [minFeatureScans=3] [maxGapScans=2] [maxSeedIsotopeIndex=45] [threads=0] [writeEvidence=0] [minRt=-1] [maxRt=-1] [minMz=-1] [maxMz=-1] [minTraceLengthSeconds=0] [minSampleRate=0.05] [minChargeCount=1] [minFeatureScore=0] [seedIsoWindow=3] [maxSeedPeaks=300] [isotopeCollapseMaxShift=8] [collapseApexToleranceMin=0.30] [collapseRtOverlapFraction=0.70]", AppDomain.CurrentDomain.FriendlyName);
                 return;
             }
 
@@ -147,6 +156,17 @@ namespace DeconvRawDiscovery
             int minChargeCount = 1;
             double minFeatureScore = 0.0;
 
+            // CHANGE: test only seed isotope offsets near the averagine apex instead of brute forcing every offset 0..maxSeedIsotopeIndex.
+            int seedIsoWindow = 3;
+
+            // CHANGE: limit the number of seed peaks per scan; this is the biggest speed control for discovery mode.
+            int maxSeedPeaks = 300;
+
+            // CHANGE: collapse features separated by n * 1.00335483507 Da if RT/apex/charge evidence says they are the same isotope-offset feature.
+            int isotopeCollapseMaxShift = 8;
+            double collapseApexToleranceMin = 0.30;
+            double collapseRtOverlapFraction = 0.70;
+
             if (args.Length >= 2) double.TryParse(args[1], NumberStyles.Float, CultureInfo.InvariantCulture, out minMass);
             if (args.Length >= 3) double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out maxMass);
             if (args.Length >= 4) int.TryParse(args[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out minCharge);
@@ -169,6 +189,11 @@ namespace DeconvRawDiscovery
             if (args.Length >= 21) double.TryParse(args[20], NumberStyles.Float, CultureInfo.InvariantCulture, out minSampleRate);
             if (args.Length >= 22) int.TryParse(args[21], NumberStyles.Integer, CultureInfo.InvariantCulture, out minChargeCount);
             if (args.Length >= 23) double.TryParse(args[22], NumberStyles.Float, CultureInfo.InvariantCulture, out minFeatureScore);
+            if (args.Length >= 24) int.TryParse(args[23], NumberStyles.Integer, CultureInfo.InvariantCulture, out seedIsoWindow);
+            if (args.Length >= 25) int.TryParse(args[24], NumberStyles.Integer, CultureInfo.InvariantCulture, out maxSeedPeaks);
+            if (args.Length >= 26) int.TryParse(args[25], NumberStyles.Integer, CultureInfo.InvariantCulture, out isotopeCollapseMaxShift);
+            if (args.Length >= 27) double.TryParse(args[26], NumberStyles.Float, CultureInfo.InvariantCulture, out collapseApexToleranceMin);
+            if (args.Length >= 28) double.TryParse(args[27], NumberStyles.Float, CultureInfo.InvariantCulture, out collapseRtOverlapFraction);
 
             if (minCharge <= 0) minCharge = 1;
             if (maxCharge < minCharge) maxCharge = minCharge;
@@ -178,6 +203,11 @@ namespace DeconvRawDiscovery
             if (minSampleRate < 0.0) minSampleRate = 0.0;
             if (minSampleRate > 1.0) minSampleRate = 1.0;
             if (minChargeCount < 1) minChargeCount = 1;
+            if (seedIsoWindow < 0) seedIsoWindow = -1;
+            if (maxSeedPeaks < 0) maxSeedPeaks = 0;
+            if (isotopeCollapseMaxShift < 0) isotopeCollapseMaxShift = 0;
+            if (collapseRtOverlapFraction < 0.0) collapseRtOverlapFraction = 0.0;
+            if (collapseRtOverlapFraction > 1.0) collapseRtOverlapFraction = 1.0;
 
             bool writeEvidence = writeEvidenceInt != 0;
 
@@ -219,6 +249,11 @@ namespace DeconvRawDiscovery
             Console.WriteLine("#minSampleRate:\t{0}", minSampleRate.ToString(CultureInfo.InvariantCulture));
             Console.WriteLine("#minChargeCount:\t{0}", minChargeCount.ToString(CultureInfo.InvariantCulture));
             Console.WriteLine("#minFeatureScore:\t{0}", minFeatureScore.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#seedIsoWindow:\t{0}", seedIsoWindow.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#maxSeedPeaks:\t{0}", maxSeedPeaks.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#isotopeCollapseMaxShift:\t{0}", isotopeCollapseMaxShift.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#collapseApexToleranceMin:\t{0}", collapseApexToleranceMin.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("#collapseRtOverlapFraction:\t{0}", collapseRtOverlapFraction.ToString(CultureInfo.InvariantCulture));
 
             rawFile.Dispose();
 
@@ -250,6 +285,8 @@ namespace DeconvRawDiscovery
                         minCos,
                         minMatchedIsotopes,
                         maxSeedIsotopeIndex,
+                        seedIsoWindow,
+                        maxSeedPeaks,
                         writeEvidence,
                         minRt,
                         maxRt,
@@ -284,29 +321,57 @@ namespace DeconvRawDiscovery
                 minFeatureScore
             );
 
+            List<FeatureGroup> acceptedRaw = features.Where(f => f.Accepted).OrderByDescending(f => f.SumIntensity).ToList();
+
+            int rawAcceptedIndex = 1;
+            foreach (FeatureGroup f in acceptedRaw)
+            {
+                f.FeatureIndex = rawAcceptedIndex;
+                f.RepresentativeFeatureIndex = rawAcceptedIndex;
+                f.MergedFeatureCount = 1;
+                f.MergedIsotopeOffsets = "0";
+                rawAcceptedIndex++;
+            }
+
+            // CHANGE: merge isotope-offset duplicate features before writing the main accepted deconvolved mass table.
+            List<FeatureGroup> acceptedCollapsed = CollapseIsotopeShiftedFeatures(
+                acceptedRaw,
+                ppmTolerance,
+                isotopeCollapseMaxShift,
+                collapseApexToleranceMin,
+                collapseRtOverlapFraction
+            );
+
             int acceptedIndex = 1;
-            foreach (FeatureGroup f in features.Where(f => f.Accepted).OrderByDescending(f => f.SumIntensity))
+            foreach (FeatureGroup f in acceptedCollapsed.OrderByDescending(f => f.SumIntensity))
             {
                 f.FeatureIndex = acceptedIndex;
                 acceptedIndex++;
             }
 
+            List<FeatureGroup> rejected = features.Where(f => !f.Accepted).OrderByDescending(f => f.SumIntensity).ToList();
+
             int rejectedIndex = 1;
-            foreach (FeatureGroup f in features.Where(f => !f.Accepted).OrderByDescending(f => f.SumIntensity))
+            foreach (FeatureGroup f in rejected)
             {
                 f.FeatureIndex = rejectedIndex;
+                f.RepresentativeFeatureIndex = rejectedIndex;
+                f.MergedFeatureCount = 1;
+                f.MergedIsotopeOffsets = "0";
                 rejectedIndex++;
             }
 
             string prefix = rawPath + ".discovery";
             string scanSummaryFile = prefix + ".scan_summary.tsv";
             string featureFile = prefix + ".deconv_masses.tsv";
+            string uncollapsedFeatureFile = prefix + ".deconv_masses.uncollapsed.tsv";
             string rejectedFile = prefix + ".rejected_masses.tsv";
             string evidenceFile = prefix + ".scan_evidence.tsv";
 
             WriteScanSummary(scanSummaryFile, allScanSummaries);
-            WriteFeatureSummary(featureFile, features.Where(f => f.Accepted).OrderByDescending(f => f.SumIntensity).ToList(), false);
-            WriteFeatureSummary(rejectedFile, features.Where(f => !f.Accepted).OrderByDescending(f => f.SumIntensity).ToList(), true);
+            WriteFeatureSummary(featureFile, acceptedCollapsed.OrderByDescending(f => f.SumIntensity).ToList(), false);
+            WriteFeatureSummary(uncollapsedFeatureFile, acceptedRaw.OrderByDescending(f => f.SumIntensity).ToList(), false);
+            WriteFeatureSummary(rejectedFile, rejected, true);
 
             if (writeEvidence)
             {
@@ -319,7 +384,8 @@ namespace DeconvRawDiscovery
             }
 
             Console.WriteLine("Wrote scan summary: {0}", scanSummaryFile);
-            Console.WriteLine("Wrote deconvolved masses: {0}", featureFile);
+            Console.WriteLine("Wrote isotope-collapsed deconvolved masses: {0}", featureFile);
+            Console.WriteLine("Wrote uncollapsed accepted masses: {0}", uncollapsedFeatureFile);
             Console.WriteLine("Wrote rejected masses: {0}", rejectedFile);
         }
 
@@ -358,6 +424,8 @@ namespace DeconvRawDiscovery
             double minCos,
             int minMatchedIsotopes,
             int maxSeedIsotopeIndex,
+            int seedIsoWindow,
+            int maxSeedPeaks,
             bool writeEvidence,
             double minRt,
             double maxRt,
@@ -454,6 +522,8 @@ namespace DeconvRawDiscovery
                             minCos,
                             minMatchedIsotopes,
                             maxSeedIsotopeIndex,
+                            seedIsoWindow,
+                            maxSeedPeaks,
                             minMz,
                             maxMz
                         );
@@ -500,6 +570,8 @@ namespace DeconvRawDiscovery
             double minCos,
             int minMatchedIsotopes,
             int maxSeedIsotopeIndex,
+            int seedIsoWindow,
+            int maxSeedPeaks,
             double minMz,
             double maxMz)
         {
@@ -523,8 +595,13 @@ namespace DeconvRawDiscovery
                 return hits;
             }
 
-            for (int peakIndex = 0; peakIndex < mzArray.Length; peakIndex++)
+            // CHANGE: only the strongest centroid peaks are used as discovery seeds; this avoids the all-peaks brute force explosion.
+            List<int> seedPeakIndices = GetSeedPeakIndices(intensityArray, minSeedIntensity, maxSeedPeaks);
+
+            for (int seedListIndex = 0; seedListIndex < seedPeakIndices.Count; seedListIndex++)
             {
+                int peakIndex = seedPeakIndices[seedListIndex];
+
                 double seedMz = mzArray[peakIndex];
                 double seedIntensity = intensityArray[peakIndex];
 
@@ -549,7 +626,13 @@ namespace DeconvRawDiscovery
                 {
                     int charge = charges[ci];
 
-                    for (int seedIso = 0; seedIso <= maxSeedIsotopeIndex; seedIso++)
+                    int startSeedIso;
+                    int endSeedIso;
+
+                    // CHANGE: estimate likely isotope apex and test only a narrow seed isotope window around it.
+                    GetSeedIsotopeRange(seedMz, charge, minMass, maxMass, maxSeedIsotopeIndex, seedIsoWindow, out startSeedIso, out endSeedIso);
+
+                    for (int seedIso = startSeedIso; seedIso <= endSeedIso; seedIso++)
                     {
                         double candidateMass = seedMz * charge - charge * Proton - seedIso * C13MinusC12;
 
@@ -582,6 +665,86 @@ namespace DeconvRawDiscovery
             }
 
             return hits;
+        }
+
+        private static List<int> GetSeedPeakIndices(double[] intensityArray, double minSeedIntensity, int maxSeedPeaks)
+        {
+            List<int> indices = new List<int>();
+
+            for (int i = 0; i < intensityArray.Length; i++)
+            {
+                if (intensityArray[i] >= minSeedIntensity)
+                {
+                    indices.Add(i);
+                }
+            }
+
+            indices = indices.OrderByDescending(i => intensityArray[i]).ToList();
+
+            if (maxSeedPeaks > 0 && indices.Count > maxSeedPeaks)
+            {
+                indices = indices.Take(maxSeedPeaks).ToList();
+            }
+
+            return indices;
+        }
+
+        private static void GetSeedIsotopeRange(
+            double seedMz,
+            int charge,
+            double minMass,
+            double maxMass,
+            int maxSeedIsotopeIndex,
+            int seedIsoWindow,
+            out int startSeedIso,
+            out int endSeedIso)
+        {
+            if (seedIsoWindow < 0)
+            {
+                startSeedIso = 0;
+                endSeedIso = maxSeedIsotopeIndex;
+                return;
+            }
+
+            double seedNeutral = seedMz * charge - charge * Proton;
+            double clippedMass = seedNeutral;
+
+            if (clippedMass < minMass)
+            {
+                clippedMass = minMass;
+            }
+
+            if (clippedMass > maxMass)
+            {
+                clippedMass = maxMass;
+            }
+
+            int estimatedApex = EstimateAveragineApexIndex(clippedMass);
+            startSeedIso = estimatedApex - seedIsoWindow;
+            endSeedIso = estimatedApex + seedIsoWindow;
+
+            if (startSeedIso < 0)
+            {
+                startSeedIso = 0;
+            }
+
+            if (endSeedIso > maxSeedIsotopeIndex)
+            {
+                endSeedIso = maxSeedIsotopeIndex;
+            }
+        }
+
+        private static int EstimateAveragineApexIndex(double neutralMass)
+        {
+            double lambda = neutralMass / 1800.0;
+            int apex = (int)Math.Round(lambda);
+
+            if (apex < 0)
+            {
+                apex = 0;
+            }
+
+            return apex;
         }
 
         private static List<int> GetCandidateCharges(double[] chargeArray, int peakIndex, int minCharge, int maxCharge)
@@ -636,7 +799,10 @@ namespace DeconvRawDiscovery
             }
 
             int isotopeCount = EstimateIsotopeCount(candidateMass);
-            double[] theoretical = BuildAveragineEnvelope(candidateMass, isotopeCount);
+
+            // CHANGE: use cached averagine model instead of rebuilding every isotope distribution repeatedly.
+            double[] theoretical = GetCachedAveragineEnvelope(candidateMass, isotopeCount);
+
             double[] observed = new double[isotopeCount];
 
             double envelopeIntensity = 0.0;
@@ -737,6 +903,18 @@ namespace DeconvRawDiscovery
             if (count > 160) count = 160;
 
             return count;
+        }
+
+        private static double[] GetCachedAveragineEnvelope(double neutralMass, int isotopeCount)
+        {
+            int massBin = (int)Math.Round(neutralMass / AveragineCacheBinDa);
+            int key = isotopeCount * 1000000 + massBin;
+
+            return AveragineCache.GetOrAdd(key, k =>
+            {
+                double cachedMass = massBin * AveragineCacheBinDa;
+                return BuildAveragineEnvelope(cachedMass, isotopeCount);
+            });
         }
 
         private static double[] BuildAveragineEnvelope(double neutralMass, int isotopeCount)
@@ -1125,6 +1303,9 @@ namespace DeconvRawDiscovery
             feature.MedianMatchedIsotopes = (int)Math.Round(Median(scans.Select(s => (double)s.MedianMatchedIsotopes).ToList()));
             feature.ApexDominance = feature.SumIntensity > 0.0 ? feature.MaxScanIntensity / feature.SumIntensity : 0.0;
             feature.FeatureScore = CalculateFeatureScore(feature);
+            feature.MergedFeatureCount = 1;
+            feature.MergedIsotopeOffsets = "0";
+            feature.RepresentativeFeatureIndex = feature.FeatureIndex;
 
             List<string> reasons = new List<string>();
 
@@ -1138,6 +1319,257 @@ namespace DeconvRawDiscovery
             feature.RejectReason = string.Join(";", reasons.ToArray());
 
             return feature;
+        }
+
+        private static List<FeatureGroup> CollapseIsotopeShiftedFeatures(
+            List<FeatureGroup> features,
+            double ppmTolerance,
+            int isotopeCollapseMaxShift,
+            double collapseApexToleranceMin,
+            double collapseRtOverlapFraction)
+        {
+            List<FeatureGroup> sorted = features.OrderByDescending(f => f.SumIntensity).ToList();
+            bool[] used = new bool[sorted.Count];
+            List<FeatureGroup> collapsed = new List<FeatureGroup>();
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                if (used[i])
+                {
+                    continue;
+                }
+
+                FeatureGroup representative = sorted[i];
+                List<FeatureGroup> cluster = new List<FeatureGroup>();
+                List<int> offsets = new List<int>();
+
+                cluster.Add(representative);
+                offsets.Add(0);
+                used[i] = true;
+
+                for (int j = i + 1; j < sorted.Count; j++)
+                {
+                    if (used[j])
+                    {
+                        continue;
+                    }
+
+                    int offset;
+
+                    if (AreIsotopeShiftedDuplicates(representative, sorted[j], ppmTolerance, isotopeCollapseMaxShift, collapseApexToleranceMin, collapseRtOverlapFraction, out offset))
+                    {
+                        cluster.Add(sorted[j]);
+                        offsets.Add(offset);
+                        used[j] = true;
+                    }
+                }
+
+                collapsed.Add(MergeIsotopeDuplicateCluster(representative, cluster, offsets));
+            }
+
+            return collapsed;
+        }
+
+        private static bool AreIsotopeShiftedDuplicates(
+            FeatureGroup a,
+            FeatureGroup b,
+            double ppmTolerance,
+            int isotopeCollapseMaxShift,
+            double collapseApexToleranceMin,
+            double collapseRtOverlapFraction,
+            out int isotopeOffset)
+        {
+            isotopeOffset = 0;
+
+            if (isotopeCollapseMaxShift <= 0)
+            {
+                return false;
+            }
+
+            double diff = b.Mass - a.Mass;
+            int n = (int)Math.Round(diff / C13MinusC12);
+
+            if (n == 0)
+            {
+                return false;
+            }
+
+            if (Math.Abs(n) > isotopeCollapseMaxShift)
+            {
+                return false;
+            }
+
+            double residual = Math.Abs(diff - n * C13MinusC12);
+            double residualToleranceDa = Math.Max(0.05, a.Mass * ppmTolerance / 1e6);
+
+            if (residual > residualToleranceDa)
+            {
+                return false;
+            }
+
+            if (Math.Abs(a.ApexRt - b.ApexRt) > collapseApexToleranceMin)
+            {
+                return false;
+            }
+
+            if (RetentionTimeOverlapFraction(a, b) < collapseRtOverlapFraction)
+            {
+                return false;
+            }
+
+            if (!ChargeRangesOverlap(a, b))
+            {
+                return false;
+            }
+
+            isotopeOffset = n;
+            return true;
+        }
+
+        private static FeatureGroup MergeIsotopeDuplicateCluster(FeatureGroup representative, List<FeatureGroup> cluster, List<int> offsets)
+        {
+            if (cluster.Count == 1)
+            {
+                representative.MergedFeatureCount = 1;
+                representative.MergedIsotopeOffsets = "0";
+                representative.RepresentativeFeatureIndex = representative.FeatureIndex;
+                return representative;
+            }
+
+            FeatureGroup merged = new FeatureGroup();
+            merged.Accepted = true;
+            merged.RejectReason = "";
+            merged.RepresentativeFeatureIndex = representative.FeatureIndex;
+            merged.MergedFeatureCount = cluster.Count;
+            merged.MergedIsotopeOffsets = string.Join(";", offsets.OrderBy(x => x).Select(x => x.ToString(CultureInfo.InvariantCulture)).ToArray());
+
+            double weightSum = 0.0;
+            double weightedMass = 0.0;
+
+            for (int i = 0; i < cluster.Count; i++)
+            {
+                FeatureGroup f = cluster[i];
+                int offset = offsets[i];
+                double adjustedMass = f.Mass - offset * C13MinusC12;
+                double weight = Math.Max(1.0, f.SumIntensity);
+
+                weightedMass += adjustedMass * weight;
+                weightSum += weight;
+            }
+
+            merged.Mass = weightSum > 0.0 ? weightedMass / weightSum : representative.Mass;
+
+            // CHANGE: avoid double-counting merged isotope duplicates; the collapsed feature intensity uses the strongest representative intensity.
+            merged.SumIntensity = cluster.Max(f => f.SumIntensity);
+
+            merged.MaxScanIntensity = cluster.Max(f => f.MaxScanIntensity);
+            merged.StartRt = cluster.Min(f => f.StartRt);
+            merged.EndRt = cluster.Max(f => f.EndRt);
+            merged.ApexRt = cluster.OrderByDescending(f => f.MaxScanIntensity).First().ApexRt;
+            merged.TraceLengthSeconds = Math.Max(0.0, (merged.EndRt - merged.StartRt) * 60.0);
+
+            List<ScanSummary> allScans = cluster.SelectMany(f => f.Scans).ToList();
+            merged.Scans = allScans;
+
+            merged.MinCharge = cluster.Min(f => f.MinCharge);
+            merged.MaxCharge = cluster.Max(f => f.MaxCharge);
+            merged.ChargeCount = CountDistinctChargesFromFeatures(cluster);
+            merged.ChargeContinuity = merged.MaxCharge >= merged.MinCharge ? merged.ChargeCount / (double)(merged.MaxCharge - merged.MinCharge + 1) : 1.0;
+
+            List<int> scanNumbers = allScans.Select(s => s.Scan).Distinct().OrderBy(s => s).ToList();
+
+            if (scanNumbers.Count > 0)
+            {
+                merged.MatchedScans = scanNumbers.Count;
+                merged.ScanSpan = scanNumbers.Last() - scanNumbers.First() + 1;
+                merged.SampleRate = merged.ScanSpan > 0 ? merged.MatchedScans / (double)merged.ScanSpan : 1.0;
+            }
+            else
+            {
+                merged.MatchedScans = cluster.Max(f => f.MatchedScans);
+                merged.ScanSpan = cluster.Max(f => f.ScanSpan);
+                merged.SampleRate = cluster.Max(f => f.SampleRate);
+            }
+
+            FeatureGroup bestScore = cluster.OrderByDescending(f => f.FeatureScore).First();
+
+            merged.MedianPpmError = bestScore.MedianPpmError;
+            merged.PpmMad = Median(cluster.Select(f => f.PpmMad).ToList());
+            merged.MedianIsotopeCosine = WeightedAverageFeatureValue(cluster, f => f.MedianIsotopeCosine);
+            merged.BestIsotopeCosine = cluster.Max(f => f.BestIsotopeCosine);
+            merged.MedianMatchedIsotopes = (int)Math.Round(Median(cluster.Select(f => (double)f.MedianMatchedIsotopes).ToList()));
+            merged.ApexDominance = merged.SumIntensity > 0.0 ? merged.MaxScanIntensity / merged.SumIntensity : 0.0;
+            merged.FeatureScore = cluster.Max(f => f.FeatureScore);
+
+            return merged;
+        }
+
+        private static double WeightedAverageFeatureValue(List<FeatureGroup> cluster, Func<FeatureGroup, double> selector)
+        {
+            double weightSum = 0.0;
+            double valueSum = 0.0;
+
+            foreach (FeatureGroup f in cluster)
+            {
+                double v = selector(f);
+
+                if (double.IsNaN(v))
+                {
+                    continue;
+                }
+
+                double w = Math.Max(1.0, f.SumIntensity);
+                valueSum += v * w;
+                weightSum += w;
+            }
+
+            if (weightSum <= 0.0)
+            {
+                return double.NaN;
+            }
+
+            return valueSum / weightSum;
+        }
+
+        private static int CountDistinctChargesFromFeatures(List<FeatureGroup> features)
+        {
+            HashSet<int> charges = new HashSet<int>();
+
+            foreach (FeatureGroup f in features)
+            {
+                for (int z = f.MinCharge; z <= f.MaxCharge; z++)
+                {
+                    charges.Add(z);
+                }
+            }
+
+            return charges.Count;
+        }
+
+        private static double RetentionTimeOverlapFraction(FeatureGroup a, FeatureGroup b)
+        {
+            double left = Math.Max(a.StartRt, b.StartRt);
+            double right = Math.Min(a.EndRt, b.EndRt);
+
+            if (right < left)
+            {
+                return 0.0;
+            }
+
+            double intersection = right - left;
+            double lenA = Math.Max(0.000001, a.EndRt - a.StartRt);
+            double lenB = Math.Max(0.000001, b.EndRt - b.StartRt);
+            double shorter = Math.Min(lenA, lenB);
+
+            return intersection / shorter;
+        }
+
+        private static bool ChargeRangesOverlap(FeatureGroup a, FeatureGroup b)
+        {
+            int left = Math.Max(a.MinCharge, b.MinCharge);
+            int right = Math.Min(a.MaxCharge, b.MaxCharge);
+
+            return left <= right;
         }
 
         private static int CountDistinctCharges(List<ScanSummary> scans)
@@ -1250,7 +1682,7 @@ namespace DeconvRawDiscovery
         {
             using (var writer = new StreamWriter(path))
             {
-                string header = "FeatureIndex\tMonoisotopicMass\tStartRetentionTime\tEndRetentionTime\tApexRetentionTime\tTraceLengthSeconds\tSumIntensity\tMaxScanIntensity\tMinCharge\tMaxCharge\tChargeCount\tChargeContinuity\tMatchedScans\tScanSpan\tSampleRate\tMedianPpmError\tPpmMAD\tMedianIsotopeCosineScore\tBestIsotopeCosineScore\tMedianMatchedIsotopes\tApexDominance\tFeatureScore";
+                string header = "FeatureIndex\tMonoisotopicMass\tStartRetentionTime\tEndRetentionTime\tApexRetentionTime\tTraceLengthSeconds\tSumIntensity\tMaxScanIntensity\tMinCharge\tMaxCharge\tChargeCount\tChargeContinuity\tMatchedScans\tScanSpan\tSampleRate\tMedianPpmError\tPpmMAD\tMedianIsotopeCosineScore\tBestIsotopeCosineScore\tMedianMatchedIsotopes\tApexDominance\tFeatureScore\tMergedFeatureCount\tMergedIsotopeOffsets\tRepresentativeFeatureIndex";
 
                 if (rejected)
                 {
@@ -1283,7 +1715,10 @@ namespace DeconvRawDiscovery
                         f.BestIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
                         f.MedianMatchedIsotopes.ToString(CultureInfo.InvariantCulture) + "\t" +
                         f.ApexDominance.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
-                        f.FeatureScore.ToString("F6", CultureInfo.InvariantCulture);
+                        f.FeatureScore.ToString("F6", CultureInfo.InvariantCulture) + "\t" +
+                        f.MergedFeatureCount.ToString(CultureInfo.InvariantCulture) + "\t" +
+                        f.MergedIsotopeOffsets + "\t" +
+                        f.RepresentativeFeatureIndex.ToString(CultureInfo.InvariantCulture);
 
                     if (rejected)
                     {
