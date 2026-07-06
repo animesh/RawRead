@@ -13,17 +13,42 @@ awk -F '\t' '{print $16}' 171010_Ip_Hela_ugi.raw.intensity0.charge0-comet-human.
 mcs InspectThermoDlls.cs -out:InspectThermoDlls.exe
 mono InspectThermoDlls.exe .
 
-## deconvRaw.cs (profile mode de-convolve)
-Main changes included: parallel RAW scan processing; strongest seed peak pruning; isotope apex seed window; cached averagine isotope envelopes; isotope-offset feature collapse; weak same-mass RT fragment collapse; explicit ambiguity output headers: ReportedMonoisotopicMass, PreferredMonoisotopicMass, RawMergedMassMin, RawMergedMassMax, RawMergedMassSpanDa, IsotopeAnchorAmbiguous, MassInterpretation.
- 
-### Compile:
+## rawPeakInspector.cs
+
+Purpose:
+Dump high intensity centroid peaks directly from the Thermo RAW file and match theoretical isotope m/z windows for candidate monoisotopic masses. This is for checking whether the 22572.99, 22573.97, and 22576.98 anchors are just different labels of the same isotope envelope.
+
+Compile:
+mcs rawPeakInspector.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:rawPeakInspector.exe
+
+Recommended run around the IgG apex region:
+mono rawPeakInspector.exe 260629_Solveig_3_IgG.raw 22.5 29.5 10000000 500 10 12 30 0 35 22572.988641,22573.970103,22576.980046 IgG_anchor_check > inspect_log.txt 2>&1
+
+Wider RT run if needed:
+mono rawPeakInspector.exe 260629_Solveig_3_IgG.raw 22.5 45.1 10000000 500 10 12 30 0 35 22572.988641,22573.970103,22576.980046 IgG_anchor_check_wide > inspect_log_wide.txt 2>&1
+
+Outputs:
+IgG_anchor_check.high_intensity_peaks.tsv
+IgG_anchor_check.isotope_peak_matches.tsv
+IgG_anchor_check.isotope_peak_summary.tsv
+IgG_anchor_check.apex_scan_windows.tsv
+
+How to inspect:
+For each candidate mass, compare isotope_peak_summary.tsv across isotope indices and charges. A wrong +n isotope anchor will shift the same raw peaks into lower isotope indices. The true monoisotopic anchor is usually the lowest anchor whose isotope series is plausible and supported across charges/RT.
+
+
+## deconvRaw.cs simplified apex-isotope/ppm preferred-anchor version.
+
+Compile:
 mcs deconvRaw.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll /reference:ThermoFisher.CommonCore.Data.dll -out:deconvRaw.exe
 
-### Run IgL discovery:
-mono deconvRaw.exe 260629_Solveig_3_L.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 3 300 8 20.0 0.70 1.0 0.01 > log.txt 2>&1
+Run example:
+mono deconvRaw.exe 260629_Solveig_3_IgG.raw 18000 25000 8 40 10 1000000 10000000 0.85 5 3 2 35 12 0 -1 -1 -1 -1 0 0.05 3 0.20 3 300 8 20.0 0.70 1.0 0.01 > log.txt 2>&1
 
-### Args:
-rawFile minMass maxMass minCharge maxCharge ppmTolerance minSeedIntensity minEnvelopeIntensity minCos minMatchedIsotopes minFeatureScans maxGapScans maxSeedIsotopeIndex threads writeEvidence minRt maxRt minMz maxMz minTraceLengthSeconds minSampleRate minChargeCount minFeatureScore seedIsoWindow maxSeedPeaks isotopeCollapseMaxShift collapseApexToleranceMin collapseRtOverlapFraction sameMassRtGapMin weakSameMassRelativeIntensity
+Main change:
+PreferredMonoisotopicMass is no longer selected as lowest or highest anchor. The code now carries observed isotope-envelope apex index and ppm error into feature/anchor evidence, then selects the supported anchor with the best apex-isotope agreement using expected apex ~= round(mass/1800), followed by ppm-centering. This should select ~22572.99 for IgG and ~22574.01 for 3_L.
+
+New diagnostic columns include WeightedAbsPpmError, ObservedApexIsotopeIndex, ExpectedApexIsotopeIndex, and ApexIsotopeDelta.
 
 ### Output to check:
 *.discovery.deconv_masses.tsv
