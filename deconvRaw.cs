@@ -109,7 +109,17 @@ namespace DeconvRawDiscovery
             public double MedianPpmError;
             public double BestFeatureScore;
             public double PriorityScore;
+            public double EvidenceScore;
+            public double InterpretabilityScore;
+            public double PreferredGroupMonoisotopicMass;
+            public int PreferredGroupFeatureIndex;
             public string TopFeatureIndices;
+            public string AllContributingFeatureIndices;
+            public string ContributingFeatureDetails;
+            public string PriorityClass;
+            public string RankPositiveEvidence;
+            public string RankPenaltyEvidence;
+            public string RepresentativeMassComment;
             public string Note;
         }
 
@@ -251,7 +261,7 @@ namespace DeconvRawDiscovery
             Console.WriteLine(autoMode ? "Wrote final permissive auto deconvolved rows: {0}" : "Wrote final isotope/same-mass collapsed deconvolved masses: {0}", prefix + ".deconv_masses.tsv");
             Console.WriteLine("Wrote uncollapsed accepted masses: {0}", prefix + ".deconv_masses.uncollapsed.tsv");
             if (autoMode) Console.WriteLine("Wrote auto associated rows: {0}", prefix + ".deconv_masses.associated_rows.tsv");
-            if (autoMode) Console.WriteLine("Wrote auto prioritized groups: {0}", prefix + ".deconv_masses.prioritized.tsv");
+            if (autoMode) Console.WriteLine("Wrote auto evidence-first generic prioritized groups: {0}", prefix + ".deconv_masses.prioritized.tsv");
             Console.WriteLine("Wrote rejected masses: {0}", prefix + ".rejected_masses.tsv");
         }
 
@@ -791,6 +801,86 @@ private static AnchorEvidence SelectPreferredAnchor(List<AnchorEvidence> anchors
             }
         }
 
+        private static double PreferredAnchorEvidenceScore(FeatureGroup f, double maxI, int maxScans, int maxChargeCount)
+        {
+            double apexScore = Clamp01(1.0 - Math.Abs(f.ApexIsotopeDelta) / 3.0);
+            double ppmScore = Clamp01(1.0 - f.WeightedAbsPpmError / 3.0);
+            double scanScore = maxScans > 0 ? Clamp01(f.MatchedScans / (double)maxScans) : 0.0;
+            double chargeScore = maxChargeCount > 0 ? Clamp01(f.ChargeCount / (double)maxChargeCount) : 0.0;
+            double intensityScore = maxI > 0.0 ? Clamp01(Math.Log10(Math.Max(1.0, f.SumIntensity)) / Math.Max(1.0, Math.Log10(Math.Max(1.0, maxI)))) : 0.0;
+            double isotopeScore = Clamp01((f.MedianIsotopeCosine - 0.74) / 0.20);
+            double featureScore = Clamp01(f.FeatureScore);
+            return 0.28 * apexScore + 0.18 * scanScore + 0.16 * featureScore + 0.14 * chargeScore + 0.10 * ppmScore + 0.08 * isotopeScore + 0.06 * intensityScore;
+        }
+
+        private static FeatureGroup SelectPreferredGroupFeature(List<FeatureGroup> groupFeatures)
+        {
+            if (groupFeatures == null || groupFeatures.Count == 0) return null;
+            double maxI = groupFeatures.Max(f => f.SumIntensity);
+            int maxScans = groupFeatures.Max(f => f.MatchedScans);
+            int maxChargeCount = groupFeatures.Max(f => f.ChargeCount);
+            var strong = groupFeatures.Where(f =>
+                f.SumIntensity >= maxI * 0.02 &&
+                f.MatchedScans >= Math.Max(2, (int)Math.Round(maxScans * 0.10)) &&
+                f.ChargeCount >= Math.Max(1, (int)Math.Round(maxChargeCount * 0.25)) &&
+                f.MedianIsotopeCosine >= 0.755 &&
+                (Math.Abs(f.MedianPpmError) <= 2.0 || f.WeightedAbsPpmError <= 2.0)
+            ).ToList();
+            if (strong.Count == 0) strong = groupFeatures.Where(f => f.SumIntensity >= maxI * 0.005 && f.MatchedScans >= 2).ToList();
+            if (strong.Count == 0) strong = groupFeatures.ToList();
+            return strong.OrderByDescending(f => PreferredAnchorEvidenceScore(f, maxI, maxScans, maxChargeCount)).ThenBy(f => Math.Abs(f.ApexIsotopeDelta)).ThenBy(f => f.WeightedAbsPpmError).ThenBy(f => Math.Abs(f.MedianPpmError)).ThenByDescending(f => f.MatchedScans).ThenByDescending(f => f.ChargeCount).ThenByDescending(f => f.FeatureScore).ThenByDescending(f => f.SumIntensity).First();
+        }
+
+        private static string BuildContributingFeatureDetails(List<FeatureGroup> groupFeatures)
+        {
+            return string.Join(";", groupFeatures.OrderByDescending(f => f.SumIntensity).Select(f =>
+                string.Format(CultureInfo.InvariantCulture,
+                    "FeatureIndex={0}|Mass={1:F6}|PreferredMass={2:F6}|RT={3:F6}-{4:F6}|ApexRT={5:F6}|SumIntensity={6:G17}|Charges={7}-{8}|ChargeCount={9}|MatchedScans={10}|FeatureScore={11:F6}|MedianCos={12:F6}|WeightedAbsPpm={13:F4}",
+                    f.FeatureIndex, f.Mass, f.PreferredMass, f.StartRt, f.EndRt, f.ApexRt, f.SumIntensity, f.MinCharge, f.MaxCharge, f.ChargeCount, f.MatchedScans, f.FeatureScore, f.MedianIsotopeCosine, f.WeightedAbsPpmError)
+            ).ToArray());
+        }
+
+        private static string BuildPositiveEvidence(CandidateGroupInfo info)
+        {
+            var p = new List<string>();
+            if (info.GroupMaxIntensity >= 1e10) p.Add("very_high_intensity"); else if (info.GroupMaxIntensity >= 1e8) p.Add("high_intensity");
+            if (info.MaxMatchedScans >= 200) p.Add("many_matched_scans"); else if (info.MaxMatchedScans >= 20) p.Add("moderate_scan_support");
+            if (info.ChargeCount >= 8) p.Add("broad_charge_support"); else if (info.ChargeCount >= 3) p.Add("multi_charge_support");
+            if (info.MedianIsotopeCosine >= 0.80) p.Add("good_isotope_cosine"); else if (info.MedianIsotopeCosine >= 0.76) p.Add("acceptable_isotope_cosine");
+            if (info.WeightedAbsPpmError <= 1.0) p.Add("good_ppm_centering"); else if (info.WeightedAbsPpmError <= 2.0) p.Add("acceptable_ppm_centering");
+            if (info.RowIndices.Count > 1) p.Add("associated_isotope_or_charge_family");
+            return p.Count == 0 ? "limited_positive_evidence" : string.Join(";", p.ToArray());
+        }
+
+        private static string BuildPenaltyEvidence(CandidateGroupInfo info)
+        {
+            var p = new List<string>();
+            double rtSpan = Math.Max(0.0, info.EndRt - info.StartRt);
+            if (info.MassSpanDa > 20.0) p.Add("large_mass_span_possible_multiple_interpretations"); else if (info.MassSpanDa > 10.0) p.Add("moderate_mass_span_isotope_anchor_ambiguity");
+            if (rtSpan > 10.0) p.Add("large_rt_span_possible_multiple_rt_components"); else if (rtSpan > 3.0) p.Add("moderate_rt_span");
+            if (info.WeightedAbsPpmError > 2.0) p.Add("weaker_ppm_centering");
+            if (info.MedianIsotopeCosine < 0.76) p.Add("lower_isotope_cosine");
+            if (info.MaxMatchedScans < 5) p.Add("few_matched_scans");
+            return p.Count == 0 ? "no_major_penalty" : string.Join(";", p.ToArray());
+        }
+
+        private static string BuildPriorityClass(CandidateGroupInfo info)
+        {
+            if (info.EvidenceScore >= 0.78 && info.InterpretabilityScore < 0.55) return "Dominant_broad_family";
+            if (info.EvidenceScore >= 0.70 && info.InterpretabilityScore >= 0.55) return "High_evidence_interpretable_group";
+            if (info.PriorityScore >= 0.65 && info.InterpretabilityScore >= 0.65) return "High_quality_compact_group";
+            if (info.EvidenceScore >= 0.55) return "Supported_evidence_group";
+            if (info.RowIndices.Count > 1) return "Associated_low_to_moderate_group";
+            return "Single_or_sparse_candidate";
+        }
+
+        private static string BuildRepresentativeMassComment(CandidateGroupInfo info)
+        {
+            if (info.RowIndices.Count <= 1) return "RepresentativeMass is the only row in this candidate group.";
+            if (Math.Abs(info.Representative.Mass - info.PreferredGroupMonoisotopicMass) > 0.2) return "RepresentativeMass is the highest-intensity row, not necessarily the monoisotopic mass; PreferredGroupMonoisotopicMass is selected by evidence quality, not by lowest mass or highest intensity alone.";
+            return "RepresentativeMass and PreferredGroupMonoisotopicMass agree within 0.2 Da.";
+        }
+
         private static List<CandidateGroupInfo> BuildCandidateGroupsForRanking(List<FeatureGroup> features, double ppm, int maxShift)
         {
             var sorted = features.OrderByDescending(f => f.SumIntensity).ToList();
@@ -800,7 +890,6 @@ private static AnchorEvidence SelectPreferredAnchor(List<AnchorEvidence> anchors
             Func<int, int> find = null;
             find = delegate(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
             Action<int, int> unite = delegate(int a, int b) { int ra = find(a), rb = find(b); if (ra != rb) parent[rb] = ra; };
-
             for (int i = 0; i < n; i++)
             {
                 for (int j = i + 1; j < n; j++)
@@ -814,7 +903,6 @@ private static AnchorEvidence SelectPreferredAnchor(List<AnchorEvidence> anchors
                     if (isotopeRelated || sameMass) unite(i, j);
                 }
             }
-
             var groups = new Dictionary<int, List<int>>();
             for (int i = 0; i < n; i++)
             {
@@ -823,77 +911,36 @@ private static AnchorEvidence SelectPreferredAnchor(List<AnchorEvidence> anchors
                 if (!groups.TryGetValue(r, out list)) { list = new List<int>(); groups[r] = list; }
                 list.Add(i);
             }
-
             var infos = new List<CandidateGroupInfo>();
             foreach (var rawGroup in groups.Values)
             {
                 var group = rawGroup.OrderByDescending(i => sorted[i].SumIntensity).ToList();
-                var groupFeatures = group.Select(i => sorted[i]).ToList();
-                FeatureGroup rep = groupFeatures.OrderByDescending(f => f.SumIntensity).First();
-                double groupSumIntensity = groupFeatures.Sum(f => f.SumIntensity);
-                double rtStart = groupFeatures.Min(f => f.StartRt);
-                double rtEnd = groupFeatures.Max(f => f.EndRt);
-                double rtSpan = Math.Max(0.0, rtEnd - rtStart);
-
-                var chargeSet = new HashSet<int>();
-                foreach (FeatureGroup f in groupFeatures) for (int z = f.MinCharge; z <= f.MaxCharge; z++) chargeSet.Add(z);
-
+                var fs = group.Select(i => sorted[i]).ToList();
+                FeatureGroup rep = fs.OrderByDescending(f => f.SumIntensity).First();
+                double sumI = fs.Sum(f => f.SumIntensity);
+                double rtStart = fs.Min(f => f.StartRt), rtEnd = fs.Max(f => f.EndRt), rtSpan = Math.Max(0, rtEnd - rtStart);
+                var chargeSet = new HashSet<int>(); foreach (FeatureGroup f in fs) for (int z = f.MinCharge; z <= f.MaxCharge; z++) chargeSet.Add(z);
                 CandidateGroupInfo info = new CandidateGroupInfo();
-                info.RowIndices = group;
-                info.Representative = rep;
-                info.MassMin = groupFeatures.Min(f => f.Mass);
-                info.MassMax = groupFeatures.Max(f => f.Mass);
-                info.MassSpanDa = info.MassMax - info.MassMin;
-                info.StartRt = rtStart;
-                info.EndRt = rtEnd;
-                info.ApexRt = rep.ApexRt;
-                info.GroupSumIntensity = groupSumIntensity;
-                info.GroupMaxIntensity = groupFeatures.Max(f => f.SumIntensity);
-                info.MinCharge = groupFeatures.Min(f => f.MinCharge);
-                info.MaxCharge = groupFeatures.Max(f => f.MaxCharge);
-                info.ChargeCount = chargeSet.Count;
-                info.MaxMatchedScans = groupFeatures.Max(f => f.MatchedScans);
-                info.MedianIsotopeCosine = Median(groupFeatures.Select(f => f.MedianIsotopeCosine).ToList());
-                info.BestIsotopeCosine = groupFeatures.Max(f => f.BestIsotopeCosine);
-                info.WeightedAbsPpmError = groupSumIntensity > 0.0 ? groupFeatures.Sum(f => f.WeightedAbsPpmError * f.SumIntensity) / groupSumIntensity : Median(groupFeatures.Select(f => f.WeightedAbsPpmError).ToList());
-                info.MedianPpmError = Median(groupFeatures.Select(f => f.MedianPpmError).ToList());
-                info.BestFeatureScore = groupFeatures.Max(f => f.FeatureScore);
-                info.TopFeatureIndices = string.Join(";", groupFeatures.OrderByDescending(f => f.SumIntensity).Take(10).Select(f => f.FeatureIndex.ToString(CultureInfo.InvariantCulture)).ToArray());
+                info.RowIndices = group; info.Representative = rep; info.MassMin = fs.Min(f => f.Mass); info.MassMax = fs.Max(f => f.Mass); info.MassSpanDa = info.MassMax - info.MassMin; info.StartRt = rtStart; info.EndRt = rtEnd; info.ApexRt = rep.ApexRt; info.GroupSumIntensity = sumI; info.GroupMaxIntensity = fs.Max(f => f.SumIntensity); info.MinCharge = fs.Min(f => f.MinCharge); info.MaxCharge = fs.Max(f => f.MaxCharge); info.ChargeCount = chargeSet.Count; info.MaxMatchedScans = fs.Max(f => f.MatchedScans); info.MedianIsotopeCosine = Median(fs.Select(f => f.MedianIsotopeCosine).ToList()); info.BestIsotopeCosine = fs.Max(f => f.BestIsotopeCosine); info.WeightedAbsPpmError = sumI > 0 ? fs.Sum(f => f.WeightedAbsPpmError * f.SumIntensity) / sumI : Median(fs.Select(f => f.WeightedAbsPpmError).ToList()); info.MedianPpmError = Median(fs.Select(f => f.MedianPpmError).ToList()); info.BestFeatureScore = fs.Max(f => f.FeatureScore); info.TopFeatureIndices = string.Join(";", fs.OrderByDescending(f => f.SumIntensity).Take(10).Select(f => f.FeatureIndex.ToString(CultureInfo.InvariantCulture)).ToArray()); info.AllContributingFeatureIndices = string.Join(";", fs.OrderByDescending(f => f.SumIntensity).Select(f => f.FeatureIndex.ToString(CultureInfo.InvariantCulture)).ToArray()); info.ContributingFeatureDetails = BuildContributingFeatureDetails(fs);
+                FeatureGroup pref = SelectPreferredGroupFeature(fs); info.PreferredGroupMonoisotopicMass = pref != null ? pref.Mass : rep.Mass; info.PreferredGroupFeatureIndex = pref != null ? pref.FeatureIndex : rep.FeatureIndex;
 
-                double intensityScore = Clamp01(Math.Log10(Math.Max(1.0, info.GroupMaxIntensity)) / 10.0);
-                double scanScore = Clamp01(info.MaxMatchedScans / 25.0);
-                double chargeScore = Clamp01(info.ChargeCount / 8.0);
+                double intensityScore = Clamp01((Math.Log10(Math.Max(1.0, info.GroupMaxIntensity)) - 6.0) / 7.0);
+                double scanScore = Clamp01(Math.Log10(Math.Max(1.0, info.MaxMatchedScans)) / 3.0);
+                double chargeScore = Clamp01(info.ChargeCount / 12.0);
                 double isotopeScore = Clamp01((info.MedianIsotopeCosine - 0.74) / 0.20);
-                double ppmScore = Clamp01(1.0 - info.WeightedAbsPpmError / 5.0);
-                double rtCompactnessScore = Clamp01(1.0 - rtSpan / 5.0);
-                double groupSupportScore = Clamp01(groupFeatures.Count / 8.0);
-                double massSpanPenalty = Clamp01(info.MassSpanDa / 25.0);
-
-                info.PriorityScore =
-                    0.22 * info.BestFeatureScore +
-                    0.18 * isotopeScore +
-                    0.16 * scanScore +
-                    0.14 * chargeScore +
-                    0.12 * intensityScore +
-                    0.08 * ppmScore +
-                    0.06 * rtCompactnessScore +
-                    0.04 * groupSupportScore -
-                    0.08 * massSpanPenalty;
-
-                if (info.PriorityScore < 0.0) info.PriorityScore = 0.0;
-                if (info.PriorityScore > 1.0) info.PriorityScore = 1.0;
-
-                if (info.MassSpanDa > 20.0)
-                    info.Note = "Broad candidate group; likely multiple related isotope-anchor/RT-fragment interpretations. Inspect member rows before reporting a single mass.";
-                else if (groupFeatures.Count > 1)
-                    info.Note = "Compact candidate group; member rows may be duplicate isotope-anchor/charge interpretations of one species.";
-                else
-                    info.Note = "Single permissive auto-discovery row; validate externally if reporting.";
-
+                double ppmScore = Clamp01(1.0 - info.WeightedAbsPpmError / 4.0);
+                double featureScore = Clamp01(info.BestFeatureScore);
+                double groupSupportScore = Clamp01(fs.Count / 20.0);
+                double rtCompactnessScore = Clamp01(1.0 - rtSpan / 12.0);
+                double massCompactnessScore = Clamp01(1.0 - info.MassSpanDa / 25.0);
+                info.EvidenceScore = 0.24 * scanScore + 0.22 * intensityScore + 0.18 * chargeScore + 0.14 * featureScore + 0.10 * isotopeScore + 0.08 * ppmScore + 0.04 * groupSupportScore;
+                info.InterpretabilityScore = 0.45 * rtCompactnessScore + 0.40 * massCompactnessScore + 0.15 * ppmScore;
+                info.PriorityScore = 0.82 * info.EvidenceScore + 0.18 * info.InterpretabilityScore;
+                if (info.PriorityScore < 0) info.PriorityScore = 0; if (info.PriorityScore > 1) info.PriorityScore = 1;
+                info.PriorityClass = BuildPriorityClass(info); info.RankPositiveEvidence = BuildPositiveEvidence(info); info.RankPenaltyEvidence = BuildPenaltyEvidence(info); info.RepresentativeMassComment = BuildRepresentativeMassComment(info); info.Note = "Generic discovery rank; no known target mass was used for prioritization. PriorityScore emphasizes evidence strength; InterpretabilityScore and comments explain broad/ambiguous groups. AllContributingFeatureIndices and ContributingFeatureDetails list every accepted deconvolved feature row that contributed to this prioritized group.";
                 infos.Add(info);
             }
-
-            infos = infos.OrderByDescending(g => g.PriorityScore).ThenByDescending(g => g.GroupMaxIntensity).ToList();
+            infos = infos.OrderByDescending(g => g.PriorityScore).ThenByDescending(g => g.EvidenceScore).ThenByDescending(g => g.GroupMaxIntensity).ToList();
             for (int i = 0; i < infos.Count; i++) infos[i].CandidateGroupIndex = i + 1;
             return infos;
         }
@@ -903,12 +950,12 @@ private static AnchorEvidence SelectPreferredAnchor(List<AnchorEvidence> anchors
             var groups = BuildCandidateGroupsForRanking(features, ppm, maxShift);
             using (var w = new StreamWriter(path))
             {
-                w.WriteLine("PriorityRank\tPriorityScore\tCandidateGroupFeatureCount\tRepresentativeFeatureIndex\tRepresentativeMass\tRepresentativePreferredMass\tGroupMassMin\tGroupMassMax\tGroupMassSpanDa\tGroupStartRetentionTime\tGroupEndRetentionTime\tGroupApexRetentionTime\tGroupTraceLengthSeconds\tGroupMaxIntensity\tGroupSumIntensity\tGroupMinCharge\tGroupMaxCharge\tGroupChargeCount\tGroupMaxMatchedScans\tGroupMedianIsotopeCosineScore\tGroupBestIsotopeCosineScore\tGroupWeightedAbsPpmError\tGroupMedianPpmError\tBestFeatureScore\tTopFeatureIndices\tPriorityNote");
+                w.WriteLine("PriorityRank\tPriorityScore\tEvidenceScore\tInterpretabilityScore\tPriorityClass\tPreferredGroupMonoisotopicMass\tPreferredGroupFeatureIndex\tRepresentativeMassComment\tRankPositiveEvidence\tRankPenaltyEvidence\tCandidateGroupFeatureCount\tAllContributingFeatureIndices\tContributingFeatureDetails\tRepresentativeFeatureIndex\tRepresentativeMass\tRepresentativePreferredMass\tGroupMassMin\tGroupMassMax\tGroupMassSpanDa\tGroupStartRetentionTime\tGroupEndRetentionTime\tGroupApexRetentionTime\tGroupTraceLengthSeconds\tGroupMaxIntensity\tGroupSumIntensity\tGroupMinCharge\tGroupMaxCharge\tGroupChargeCount\tGroupMaxMatchedScans\tGroupMedianIsotopeCosineScore\tGroupBestIsotopeCosineScore\tGroupWeightedAbsPpmError\tGroupMedianPpmError\tBestFeatureScore\tTopFeatureIndices\tPriorityNote");
                 int rank = 1;
                 foreach (CandidateGroupInfo g in groups)
                 {
                     FeatureGroup rep = g.Representative;
-                    w.WriteLine(Join(rank, g.PriorityScore.ToString("F6", CultureInfo.InvariantCulture), g.RowIndices.Count, rep.FeatureIndex, F(rep.Mass), F(rep.PreferredMass), F(g.MassMin), F(g.MassMax), F(g.MassSpanDa), F(g.StartRt), F(g.EndRt), F(g.ApexRt), ((g.EndRt - g.StartRt) * 60.0).ToString("F3", CultureInfo.InvariantCulture), G(g.GroupMaxIntensity), G(g.GroupSumIntensity), g.MinCharge, g.MaxCharge, g.ChargeCount, g.MaxMatchedScans, g.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), g.BestIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), g.WeightedAbsPpmError.ToString("F4", CultureInfo.InvariantCulture), g.MedianPpmError.ToString("F4", CultureInfo.InvariantCulture), g.BestFeatureScore.ToString("F6", CultureInfo.InvariantCulture), Safe(g.TopFeatureIndices), Safe(g.Note)));
+                    w.WriteLine(Join(rank, g.PriorityScore.ToString("F6", CultureInfo.InvariantCulture), g.EvidenceScore.ToString("F6", CultureInfo.InvariantCulture), g.InterpretabilityScore.ToString("F6", CultureInfo.InvariantCulture), Safe(g.PriorityClass), F(g.PreferredGroupMonoisotopicMass), g.PreferredGroupFeatureIndex, Safe(g.RepresentativeMassComment), Safe(g.RankPositiveEvidence), Safe(g.RankPenaltyEvidence), g.RowIndices.Count, Safe(g.AllContributingFeatureIndices), Safe(g.ContributingFeatureDetails), rep.FeatureIndex, F(rep.Mass), F(rep.PreferredMass), F(g.MassMin), F(g.MassMax), F(g.MassSpanDa), F(g.StartRt), F(g.EndRt), F(g.ApexRt), ((g.EndRt - g.StartRt) * 60.0).ToString("F3", CultureInfo.InvariantCulture), G(g.GroupMaxIntensity), G(g.GroupSumIntensity), g.MinCharge, g.MaxCharge, g.ChargeCount, g.MaxMatchedScans, g.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), g.BestIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), g.WeightedAbsPpmError.ToString("F4", CultureInfo.InvariantCulture), g.MedianPpmError.ToString("F4", CultureInfo.InvariantCulture), g.BestFeatureScore.ToString("F6", CultureInfo.InvariantCulture), Safe(g.TopFeatureIndices), Safe(g.Note)));
                     rank++;
                 }
             }

@@ -42,14 +42,16 @@ Main change:
 PreferredMonoisotopicMass is no longer selected as lowest or highest anchor. The code now carries observed isotope-envelope apex index and ppm error into feature/anchor evidence, then selects the supported anchor with the best apex-isotope agreement using expected apex ~= round(mass/1800), followed by ppm-centering. This should select ~22572.99 for IgG and ~22574.01 for 3_L. Diagnostic columns include WeightedAbsPpmError, ObservedApexIsotopeIndex, ExpectedApexIsotopeIndex, and ApexIsotopeDelta.
 
 
-New full-auto mode: Manual mode still works as before.
-
-mono deconvRaw.exe 260629_Solveig_3_IgA.raw auto > IgA_auto_log.txt 2>&1
-
 Tune-only mode:
 
 mono deconvRaw.exe 260629_Solveig_3_IgA.raw auto-tune-only > IgA_auto_tune.txt 2>&1
 
+New full-auto mode: Manual mode still works as before.
+
+mono deconvRaw.exe 260629_Solveig_3_L.raw auto > L_auto_contributors_log.txt 2>&1
+mono deconvRaw.exe 260629_Solveig_3_IgG.raw auto > IgG_auto_contributors_log.txt 2>&1
+mono deconvRaw.exe 260629_Solveig_3_IgA.raw auto > IgA_auto_contributors_log.txt 2>&1
+awk -F'\t' 'NR==1 {for(i=1;i<=NF;i++) h[$i]=i} NR==2 {gsub(/;/,"\n",$h["ContributingFeatureDetails"]); print $h["ContributingFeatureDetails"]}' 260629_Solveig_3_L.raw.discovery.deconv_masses.prioritized.tsv | head -20
 
 The auto prescan samples MS1 scans, estimates peak intensity percentiles, builds a rough neutral-mass histogram from sampled centroid peaks over broad charges, infers mass/charge/RT/intensity settings, prints #auto... lines, then runs the existing discovery pipeline.
 - Auto mode becomes broad/permissive: 8000-60000 Da, charge 5-40, minSeed 50000, minEnvelope 1000000, minCos 0.75, maxGap 10, minChargeCount 1.
@@ -59,15 +61,32 @@ The auto prescan samples MS1 scans, estimates peak intensity percentiles, builds
 
 This is intended to recover weak IgA-like signals that appear as sparse scan-level hits but do not become stable seed-driven features.
 
-New output in auto mode:
-  *.deconv_masses.prioritized.tsv
-
 What it does:
 - Keeps permissive discovery rows in deconv_masses.tsv and deconv_masses.uncollapsed.tsv.
 - Keeps associated row grouping in deconv_masses.associated_rows.tsv.
 - Adds a prioritized group-level ranking file so strong, coherent candidate groups rise to the top without making discovery stricter.
 
 PriorityScore combines feature score, isotope cosine, matched scan support, charge support, intensity, ppm centering, RT compactness, and group support, with a penalty for very broad mass-span groups.
+
+This version keeps discovery unbiased:
+- No known target masses are used to boost or reorder ranks.
+- PriorityScore emphasizes evidence strength, not compactness alone.
+- InterpretabilityScore is reported separately, so dominant broad families can rank high while still being flagged as broad/ambiguous.
+- PreferredGroupMonoisotopicMass is selected by evidence quality: isotope apex agreement, ppm centering, matched scans, charge support, feature score, isotope cosine, and intensity. It no longer simply biases toward the lowest supported anchor.
+
+Important output:
+  *.deconv_masses.prioritized.tsv
+PriorityScore = 0.82 * EvidenceScore + 0.18 * InterpretabilityScore
+New columns in *.deconv_masses.prioritized.tsv:
+- AllContributingFeatureIndices: every accepted deconvolved FeatureIndex contributing to the prioritized group.
+- ContributingFeatureDetails: per-feature details in the form FeatureIndex, Mass, PreferredMass, RT range, ApexRT, SumIntensity, charge range, ChargeCount, MatchedScans, FeatureScore, MedianCos, and WeightedAbsPpm.
+-  PriorityClass
+-  PreferredGroupMonoisotopicMass
+-  PreferredGroupFeatureIndex
+-  RepresentativeMassComment
+-  RankPositiveEvidence
+-  RankPenaltyEvidence
+-  PriorityNote
 
 
 ```
