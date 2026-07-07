@@ -86,6 +86,33 @@ namespace DeconvRawDiscovery
         {
             public double Mass; public double RtMin; public double RtMax; public int MinCharge; public int MaxCharge; public double Score;
         }
+        private class CandidateGroupInfo
+        {
+            public int CandidateGroupIndex;
+            public List<int> RowIndices = new List<int>();
+            public FeatureGroup Representative;
+            public double MassMin;
+            public double MassMax;
+            public double MassSpanDa;
+            public double StartRt;
+            public double EndRt;
+            public double ApexRt;
+            public double GroupSumIntensity;
+            public double GroupMaxIntensity;
+            public int MinCharge;
+            public int MaxCharge;
+            public int ChargeCount;
+            public int MaxMatchedScans;
+            public double MedianIsotopeCosine;
+            public double BestIsotopeCosine;
+            public double WeightedAbsPpmError;
+            public double MedianPpmError;
+            public double BestFeatureScore;
+            public double PriorityScore;
+            public string TopFeatureIndices;
+            public string Note;
+        }
+
 
         static void Main(string[] args)
         {
@@ -207,6 +234,7 @@ namespace DeconvRawDiscovery
                 // without hiding weak raw-data evidence inside over-broad collapsed clusters.
                 finalOutput = accepted.OrderByDescending(f => f.SumIntensity).ToList();
                 WriteAssociatedRows(prefix + ".deconv_masses.associated_rows.tsv", finalOutput, ppmTolerance, isotopeCollapseMaxShift);
+                WritePrioritizedRows(prefix + ".deconv_masses.prioritized.tsv", finalOutput, ppmTolerance, isotopeCollapseMaxShift);
             }
             else
             {
@@ -223,6 +251,7 @@ namespace DeconvRawDiscovery
             Console.WriteLine(autoMode ? "Wrote final permissive auto deconvolved rows: {0}" : "Wrote final isotope/same-mass collapsed deconvolved masses: {0}", prefix + ".deconv_masses.tsv");
             Console.WriteLine("Wrote uncollapsed accepted masses: {0}", prefix + ".deconv_masses.uncollapsed.tsv");
             if (autoMode) Console.WriteLine("Wrote auto associated rows: {0}", prefix + ".deconv_masses.associated_rows.tsv");
+            if (autoMode) Console.WriteLine("Wrote auto prioritized groups: {0}", prefix + ".deconv_masses.prioritized.tsv");
             Console.WriteLine("Wrote rejected masses: {0}", prefix + ".rejected_masses.tsv");
         }
 
@@ -758,6 +787,129 @@ private static AnchorEvidence SelectPreferredAnchor(List<AnchorEvidence> anchors
                         string note = g.Count > 1 ? "Rows in this group may represent the same underlying species observed as different isotope-anchor/charge/RT-fragment interpretations; auto mode keeps rows separate to avoid hiding weak raw-data evidence." : "Single permissive auto-discovery row.";
                         w.WriteLine(Join(groupIndex[i], g.Count, F(rep.Mass), F(gMin), F(gMax), F(gMax - gMin), off, Safe(note), f.FeatureIndex, F(f.Mass), F(f.PreferredMass), F(f.StartRt), F(f.EndRt), F(f.ApexRt), G(f.SumIntensity), f.MinCharge, f.MaxCharge, f.ChargeCount, f.MatchedScans, f.MedianPpmError.ToString("F4", CultureInfo.InvariantCulture), f.WeightedAbsPpmError.ToString("F4", CultureInfo.InvariantCulture), f.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), f.BestIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), f.MedianMatchedIsotopes, f.FeatureScore.ToString("F6", CultureInfo.InvariantCulture)));
                     }
+                }
+            }
+        }
+
+        private static List<CandidateGroupInfo> BuildCandidateGroupsForRanking(List<FeatureGroup> features, double ppm, int maxShift)
+        {
+            var sorted = features.OrderByDescending(f => f.SumIntensity).ToList();
+            int n = sorted.Count;
+            int[] parent = new int[n];
+            for (int i = 0; i < n; i++) parent[i] = i;
+            Func<int, int> find = null;
+            find = delegate(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+            Action<int, int> unite = delegate(int a, int b) { int ra = find(a), rb = find(b); if (ra != rb) parent[rb] = ra; };
+
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = i + 1; j < n; j++)
+                {
+                    if (RetentionTimeOverlapFraction(sorted[i], sorted[j]) < 0.20 && Math.Abs(sorted[i].ApexRt - sorted[j].ApexRt) > 2.0) continue;
+                    if (!ChargeRangesOverlap(sorted[i], sorted[j])) continue;
+                    double d = sorted[j].Mass - sorted[i].Mass;
+                    int off = (int)Math.Round(d / C13MinusC12);
+                    bool isotopeRelated = Math.Abs(off) <= Math.Max(0, maxShift) && Math.Abs(d - off * C13MinusC12) <= Math.Max(0.05, sorted[i].Mass * ppm / 1e6);
+                    bool sameMass = Math.Abs(PpmError(sorted[j].Mass, sorted[i].Mass)) <= ppm;
+                    if (isotopeRelated || sameMass) unite(i, j);
+                }
+            }
+
+            var groups = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int r = find(i);
+                List<int> list;
+                if (!groups.TryGetValue(r, out list)) { list = new List<int>(); groups[r] = list; }
+                list.Add(i);
+            }
+
+            var infos = new List<CandidateGroupInfo>();
+            foreach (var rawGroup in groups.Values)
+            {
+                var group = rawGroup.OrderByDescending(i => sorted[i].SumIntensity).ToList();
+                var groupFeatures = group.Select(i => sorted[i]).ToList();
+                FeatureGroup rep = groupFeatures.OrderByDescending(f => f.SumIntensity).First();
+                double groupSumIntensity = groupFeatures.Sum(f => f.SumIntensity);
+                double rtStart = groupFeatures.Min(f => f.StartRt);
+                double rtEnd = groupFeatures.Max(f => f.EndRt);
+                double rtSpan = Math.Max(0.0, rtEnd - rtStart);
+
+                var chargeSet = new HashSet<int>();
+                foreach (FeatureGroup f in groupFeatures) for (int z = f.MinCharge; z <= f.MaxCharge; z++) chargeSet.Add(z);
+
+                CandidateGroupInfo info = new CandidateGroupInfo();
+                info.RowIndices = group;
+                info.Representative = rep;
+                info.MassMin = groupFeatures.Min(f => f.Mass);
+                info.MassMax = groupFeatures.Max(f => f.Mass);
+                info.MassSpanDa = info.MassMax - info.MassMin;
+                info.StartRt = rtStart;
+                info.EndRt = rtEnd;
+                info.ApexRt = rep.ApexRt;
+                info.GroupSumIntensity = groupSumIntensity;
+                info.GroupMaxIntensity = groupFeatures.Max(f => f.SumIntensity);
+                info.MinCharge = groupFeatures.Min(f => f.MinCharge);
+                info.MaxCharge = groupFeatures.Max(f => f.MaxCharge);
+                info.ChargeCount = chargeSet.Count;
+                info.MaxMatchedScans = groupFeatures.Max(f => f.MatchedScans);
+                info.MedianIsotopeCosine = Median(groupFeatures.Select(f => f.MedianIsotopeCosine).ToList());
+                info.BestIsotopeCosine = groupFeatures.Max(f => f.BestIsotopeCosine);
+                info.WeightedAbsPpmError = groupSumIntensity > 0.0 ? groupFeatures.Sum(f => f.WeightedAbsPpmError * f.SumIntensity) / groupSumIntensity : Median(groupFeatures.Select(f => f.WeightedAbsPpmError).ToList());
+                info.MedianPpmError = Median(groupFeatures.Select(f => f.MedianPpmError).ToList());
+                info.BestFeatureScore = groupFeatures.Max(f => f.FeatureScore);
+                info.TopFeatureIndices = string.Join(";", groupFeatures.OrderByDescending(f => f.SumIntensity).Take(10).Select(f => f.FeatureIndex.ToString(CultureInfo.InvariantCulture)).ToArray());
+
+                double intensityScore = Clamp01(Math.Log10(Math.Max(1.0, info.GroupMaxIntensity)) / 10.0);
+                double scanScore = Clamp01(info.MaxMatchedScans / 25.0);
+                double chargeScore = Clamp01(info.ChargeCount / 8.0);
+                double isotopeScore = Clamp01((info.MedianIsotopeCosine - 0.74) / 0.20);
+                double ppmScore = Clamp01(1.0 - info.WeightedAbsPpmError / 5.0);
+                double rtCompactnessScore = Clamp01(1.0 - rtSpan / 5.0);
+                double groupSupportScore = Clamp01(groupFeatures.Count / 8.0);
+                double massSpanPenalty = Clamp01(info.MassSpanDa / 25.0);
+
+                info.PriorityScore =
+                    0.22 * info.BestFeatureScore +
+                    0.18 * isotopeScore +
+                    0.16 * scanScore +
+                    0.14 * chargeScore +
+                    0.12 * intensityScore +
+                    0.08 * ppmScore +
+                    0.06 * rtCompactnessScore +
+                    0.04 * groupSupportScore -
+                    0.08 * massSpanPenalty;
+
+                if (info.PriorityScore < 0.0) info.PriorityScore = 0.0;
+                if (info.PriorityScore > 1.0) info.PriorityScore = 1.0;
+
+                if (info.MassSpanDa > 20.0)
+                    info.Note = "Broad candidate group; likely multiple related isotope-anchor/RT-fragment interpretations. Inspect member rows before reporting a single mass.";
+                else if (groupFeatures.Count > 1)
+                    info.Note = "Compact candidate group; member rows may be duplicate isotope-anchor/charge interpretations of one species.";
+                else
+                    info.Note = "Single permissive auto-discovery row; validate externally if reporting.";
+
+                infos.Add(info);
+            }
+
+            infos = infos.OrderByDescending(g => g.PriorityScore).ThenByDescending(g => g.GroupMaxIntensity).ToList();
+            for (int i = 0; i < infos.Count; i++) infos[i].CandidateGroupIndex = i + 1;
+            return infos;
+        }
+
+        private static void WritePrioritizedRows(string path, List<FeatureGroup> features, double ppm, int maxShift)
+        {
+            var groups = BuildCandidateGroupsForRanking(features, ppm, maxShift);
+            using (var w = new StreamWriter(path))
+            {
+                w.WriteLine("PriorityRank\tPriorityScore\tCandidateGroupFeatureCount\tRepresentativeFeatureIndex\tRepresentativeMass\tRepresentativePreferredMass\tGroupMassMin\tGroupMassMax\tGroupMassSpanDa\tGroupStartRetentionTime\tGroupEndRetentionTime\tGroupApexRetentionTime\tGroupTraceLengthSeconds\tGroupMaxIntensity\tGroupSumIntensity\tGroupMinCharge\tGroupMaxCharge\tGroupChargeCount\tGroupMaxMatchedScans\tGroupMedianIsotopeCosineScore\tGroupBestIsotopeCosineScore\tGroupWeightedAbsPpmError\tGroupMedianPpmError\tBestFeatureScore\tTopFeatureIndices\tPriorityNote");
+                int rank = 1;
+                foreach (CandidateGroupInfo g in groups)
+                {
+                    FeatureGroup rep = g.Representative;
+                    w.WriteLine(Join(rank, g.PriorityScore.ToString("F6", CultureInfo.InvariantCulture), g.RowIndices.Count, rep.FeatureIndex, F(rep.Mass), F(rep.PreferredMass), F(g.MassMin), F(g.MassMax), F(g.MassSpanDa), F(g.StartRt), F(g.EndRt), F(g.ApexRt), ((g.EndRt - g.StartRt) * 60.0).ToString("F3", CultureInfo.InvariantCulture), G(g.GroupMaxIntensity), G(g.GroupSumIntensity), g.MinCharge, g.MaxCharge, g.ChargeCount, g.MaxMatchedScans, g.MedianIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), g.BestIsotopeCosine.ToString("F6", CultureInfo.InvariantCulture), g.WeightedAbsPpmError.ToString("F4", CultureInfo.InvariantCulture), g.MedianPpmError.ToString("F4", CultureInfo.InvariantCulture), g.BestFeatureScore.ToString("F6", CultureInfo.InvariantCulture), Safe(g.TopFeatureIndices), Safe(g.Note)));
+                    rank++;
                 }
             }
         }

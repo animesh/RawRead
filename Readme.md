@@ -59,6 +59,17 @@ The auto prescan samples MS1 scans, estimates peak intensity percentiles, builds
 
 This is intended to recover weak IgA-like signals that appear as sparse scan-level hits but do not become stable seed-driven features.
 
+New output in auto mode:
+  *.deconv_masses.prioritized.tsv
+
+What it does:
+- Keeps permissive discovery rows in deconv_masses.tsv and deconv_masses.uncollapsed.tsv.
+- Keeps associated row grouping in deconv_masses.associated_rows.tsv.
+- Adds a prioritized group-level ranking file so strong, coherent candidate groups rise to the top without making discovery stricter.
+
+PriorityScore combines feature score, isotope cosine, matched scan support, charge support, intensity, ppm centering, RT compactness, and group support, with a penalty for very broad mass-span groups.
+
+
 ```
 mono deconvRaw.exe 260629_Solveig_3_IgA.raw \
   23000 23600 \
