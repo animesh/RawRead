@@ -76,6 +76,12 @@ internal static class RawRead2PeakList {
             // intensities[k] and scanTimes[k] hold the max-intensity and RT for scan k, used for FFT below
             var intensities = new double[scanCount];
             var scanTimes = new double[scanCount];
+            // mzGrid accumulates summed MS1 intensity on a 0.01 Da grid for mass-domain FFT
+            const double mzBinSize = 0.01;
+            double mzMin = rawFile.RunHeaderEx.LowMass, mzMax = rawFile.RunHeaderEx.HighMass;
+            int mzGridSize = (int)Math.Ceiling((mzMax - mzMin) / mzBinSize) + 1;
+            var mzGrid = new double[mzGridSize];
+            int ms1ScanCount = 0;
             using var writeMS1 = new StreamWriter(rawFile.FileName + ".profile.intensity" + intensityThreshold + ".charge" + chargeThreshold + ".MS.txt");
             using var writeMS2 = new StreamWriter(rawFile.FileName + ".centroid.MGF");
             using var writeMS2Profile = new StreamWriter(rawFile.FileName + ".profile.MGF");
@@ -116,6 +122,12 @@ internal static class RawRead2PeakList {
                         }
                         if (intensity >= maxIntensity) { maxIntensity = intensity; maxMass = mass; maxIntensitySum += maxIntensity; }
                     }
+                    // accumulate MS1 centroids onto the regular m/z grid for the mass-domain FFT
+                    for (int j = 0; j < centroid.Length; j++) {
+                        int bin = (int)Math.Round((centroid.Masses[j] - mzMin) / mzBinSize);
+                        if (bin >= 0 && bin < mzGridSize) mzGrid[bin] += centroid.Intensities[j];
+                    }
+                    ms1ScanCount++;
                 }
                 Console.WriteLine("{0}\t{8}\t{7}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}",
                     scanNumber, maxIntensitySum, title, maxMass, time, maxIntensity, charge,
@@ -138,6 +150,20 @@ internal static class RawRead2PeakList {
             }
             Console.WriteLine("#TIC>={0}intensity:\t{1}", intensityThreshold, tic);
             Console.WriteLine("#Ions>=charge{0}:\t{1}", chargeThreshold, ionsAboveThreshold);
+            // mass-domain FFT of averaged MS1 spectrum: peak at bin k → m/z spacing = mzGridSize*mzBinSize/k Da
+            if (ms1ScanCount > 0) {
+                var mzSamples = new Complex[mzGridSize];
+                for (int i = 0; i < mzGridSize; i++) mzSamples[i] = new Complex(mzGrid[i] / ms1ScanCount, 0);
+                Fourier.Forward(mzSamples, FourierOptions.NoScaling);
+                using var writeMzFFT = new StreamWriter(rawFile.FileName + ".mzFFT.txt");
+                writeMzFFT.WriteLine("bin\tspacing_Da\tmagnitude");
+                // only write first N/2 bins; skip bin 0 (DC = average intensity)
+                for (int i = 1; i < mzGridSize / 2; i++) {
+                    double mag = (2.0 / mzGridSize) * Math.Sqrt(mzSamples[i].Real * mzSamples[i].Real + mzSamples[i].Imaginary * mzSamples[i].Imaginary);
+                    double spacingDa = (mzGridSize * mzBinSize) / i;
+                    writeMzFFT.WriteLine("{0}\t{1:F4}\t{2:F2}", i, spacingDa, mag);
+                }
+            }
         } finally { rawFile.Dispose(); }
     }
 }

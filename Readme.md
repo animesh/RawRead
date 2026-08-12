@@ -21,6 +21,7 @@ cd RawRead
 `<raw>.centroid.MGF`, `<raw>.profile.MGF` — MS2 blocks for centroid/profile scans
 `<raw>.profile.intensity{insThr}.charge{chgThr}.MS.txt` — per-scan profile/intensity listing
 `<raw>.intensity{insThr}.charge{chgThr}.FFT.txt` — FFT of max-intensity over scan index (see below)
+`<raw>.mzFFT.txt` — mass-domain FFT of averaged MS1 spectrum (see below)
 
 ### FFT output interpretation
 
@@ -40,6 +41,25 @@ The signal being transformed is the per-scan maximum centroid intensity, sampled
 | 72–98 | 6–9 sec | Individual survey + fragmentation scan timing |
 
 High-magnitude bins at short periods (< 0.2 min) indicate the instrument's raw scan repeat rate. A strong bin near 1 minute is characteristic of DDA TopN methods. Peaks in the 2–5 min range reflect the chromatographic peak cluster structure of the gradient.
+
+### Mass-domain FFT (`<raw>.mzFFT.txt`)
+
+Columns: `bin`, `spacing_Da`, `magnitude`.
+
+The averaged MS1 spectrum is placed on a 0.01 Da grid and FFT'd. A magnitude peak at a given `spacing_Da` means ions appear at regular intervals of that many Da across the averaged spectrum. This reveals:
+
+| spacing_Da | interpretation |
+|---|---|
+| 1.0 | z=1 isotope envelope |
+| 0.5 | z=2 isotope envelope (most peptides) |
+| 0.33 | z=3 |
+| 0.25, 0.2, … | z=4, z=5, … — multiply charged peptides |
+| 14 | CH₂ repeat — lipid/fatty acid series |
+| 22 | CO₂ loss ladder or specific polymer |
+| 44 | CO₂ (44 Da) repeat — polyether/lipid |
+| 162 | hexose sugar unit — glycan series |
+
+Strong peaks at sub-Da spacings (0.1–0.5 Da) directly report the dominant charge states in the run. A run dominated by doubly and triply charged tryptic peptides will show the highest magnitude at `spacing_Da ≈ 0.33–0.50`.
 
 ## Notable behaviors & caveats
 
