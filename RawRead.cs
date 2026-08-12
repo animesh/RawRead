@@ -1,137 +1,143 @@
-﻿//released under GPL version 2 or later: sharma.animesh@gmail.com
-//install mono and compile: mcs RawRead.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll
-//run: mono RawRead.exe <ThermoOrbitrapRawfileName> <intensityThreshold>(optional) <chargeThreshold>(optional)
-//windows with dotnet: c:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe RawRead.cs /reference:ThermoFisher.CommonCore.RawFileReader.dll   /reference:ThermoFisher.CommonCore.Data.dll /reference:ThermoFisher.CommonCore.MassPrecisionEstimator.dll /reference:MathNet.Numerics.dll /reference:System.Numerics.dll
-namespace RawRead
-{
-    using ThermoFisher.CommonCore.RawFileReader;//RawFileReader from Planet Orbitrap http://planetorbitrap.com/rawfilereader
-    using ThermoFisher.CommonCore.Data.Business;//RawFileReader
-    using ThermoFisher.CommonCore.MassPrecisionEstimator;//RawFileReader
-    using MathNet.Numerics.IntegralTransforms;//nuget or dotnet https://www.nuget.org/packages/MathNet.Numerics/
-    using System.Numerics;//https://www.nuget.org/packages/System.Runtime.Numerics/
-    using System;
-    using System.IO;
-    using System.Collections.Generic;
-    using ThermoFisher.CommonCore.Data.Interfaces;
-
-    internal class RawRead2PeakList
-    {
-        static void Main(string[] args)
-        {
-            if (args.Length < 1 || !File.Exists(args[0])) { Console.WriteLine("USAGE: {0} fileName intensityThreshold(optional) chargeThreshold(optional)", AppDomain.CurrentDomain.FriendlyName); return; }
-            var rawFile = RawFileReaderAdapter.FileFactory(args[0]);
-            if(!rawFile.IsOpen) { Console.WriteLine("Raw file {1} is already Open, probably not finish writing", rawFile.FileError, args[0]); return; }
-            if(rawFile.IsError) { Console.WriteLine("Error opening {1}, probably not proper orbitrap raw file? Tested only on Elite, QE and HF...", rawFile.FileError, args[0]); return; }
-            double insThr = 0;
-            int chgThr = 0;
-            if (args.Length == 2) { insThr = double.Parse(args[1]); }
-            if (args.Length == 3) { insThr = double.Parse(args[1]); chgThr = int.Parse(args[2]); }
-            rawFile.SelectInstrument(Device.MS, 1);
-            int fMS = rawFile.RunHeaderEx.FirstSpectrum;
-            int nMS = rawFile.RunHeaderEx.LastSpectrum;
-            var fFilter = rawFile.GetFilterForScanNumber(fMS);
-            var nFilter = rawFile.GetFilterForScanNumber(nMS);
-            //GetSpectrum(rawFile, fMS, fFilter.ToString(), false);
-            double sTime = rawFile.RunHeaderEx.StartTime;
-            double eTime = rawFile.RunHeaderEx.EndTime;
-            Console.WriteLine("#filename:\t" + rawFile.FileName + "\n" + "#prescan(s):\t" + nMS + "\n" + "#RT length:\t" + (eTime - sTime) + "\n" + "#version:\t" + rawFile.FileHeader.Revision + "\n" + "#create date:\t" + rawFile.FileHeader.CreationDate + "\n" + "#machine:\t" + rawFile.FileHeader.WhoCreatedId + "\n" + "#serial:\t" + rawFile.GetInstrumentData().SerialNumber + "\n" + "#writer:\t" + rawFile.GetInstrumentData().SoftwareVersion + "\n" + "#resolution:\t" + rawFile.RunHeaderEx.MassResolution + "\n" + "#massrange:\t" + rawFile.RunHeaderEx.LowMass + "-" + rawFile.RunHeaderEx.HighMass + "\n" + "#sample:\t" + rawFile.SampleInformation.Vial + "\n" + "#volume:\t" + rawFile.SampleInformation.SampleVolume + "\n" + "#injection:\t" + rawFile.SampleInformation.InjectionVolume + "\n" + "#dilution:\t" + rawFile.SampleInformation.DilutionFactor + "\n" + "#filter:\t" + fFilter.ToString() + "\n" + "#filterN:\t" + nFilter.ToString());
-            //foreach (var device in rawFile.GetAllInstrumentNamesFromInstrumentMethod()) { Console.WriteLine("#method:\t" + device);}//windows only
-            StreamWriter writeMZ = new StreamWriter(rawFile.FileName + ".MZ.txt");
-            var scan = Scan.FromFile(rawFile, fMS);
-            var scanEvent = rawFile.GetScanEventForScanNumber(fMS);
-            LogEntry logEntry = rawFile.GetTrailerExtraInformation(fMS);
-            var trailerHeadings = new List<string>();
-            var trailerValues = new List<string>();
-            for (var i = 0; i < logEntry.Length; i++) {trailerHeadings.Add(logEntry.Labels[i]);trailerValues.Add(logEntry.Values[i]);}
-            IPrecisionEstimate precisionEstimate = new PrecisionEstimate();
-            var ionTime = precisionEstimate.GetIonTime(scanEvent.MassAnalyzer, scan, trailerHeadings, trailerValues);
-            var listResults = precisionEstimate.GetMassPrecisionEstimate(scan, scanEvent.MassAnalyzer, ionTime, rawFile.RunHeader.MassResolution);
-            if (listResults.Count > 0)
-            {
-                writeMZ.WriteLine("Mass\tmmu\tppm\t");
-                foreach (var result in listResults){writeMZ.WriteLine("{0:F5}\t{1:F3}\t{2:F2}",result.Mass, result.MassAccuracyInMmu, result.MassAccuracyInPpm);}
-            }
-            // Get the chromatogram from the RAW file.
-            ChromatogramTraceSettings settings = new ChromatogramTraceSettings(TraceType.BasePeak);
-            var data = rawFile.GetChromatogramData(new IChromatogramSettings[] { settings }, fMS, nMS);
-            var trace = ChromatogramSignal.FromChromatogramData(data);
-            StreamWriter writeChromatogram = new StreamWriter(rawFile.FileName + ".chromatogram.txt");
-            if (trace[0].Length > 0)
-            {
-                writeChromatogram.WriteLine("BasePeak({0}points)\tRT\tIntensity", trace[0].Length);
-                for (int i = 0; i < trace[0].Length; i++){writeChromatogram.WriteLine("{0}\t{1:F3}\t{2:F0}", i, 60*trace[0].Times[i], trace[0].Intensities[i]);}
-            }
-            int tms = 0;
-            double tic = 0;
-            double maxIntSum = 0;
-            Complex[] samples = new Complex[nMS];
-            StreamWriter writeMS1 = new StreamWriter(rawFile.FileName + ".profile.intensity" + insThr + ".charge" + chgThr + "." + "MS.txt");
-            StreamWriter writeMS2 = new StreamWriter(rawFile.FileName + ".centroid." + "MGF");
-            StreamWriter writeMS2p = new StreamWriter(rawFile.FileName + ".profile." + "MGF");
-            for (int i = fMS; i <= nMS; i++)
-            {
-                double time = rawFile.RetentionTimeFromScanNumber(i);
-                string title = string.Join(Environment.NewLine, rawFile.GetScanEventForScanNumber(i));
-                var scanStatistics = rawFile.GetScanStatsForScanNumber(i);
-                var segmentedScan = rawFile.GetSegmentedScanFromScanNumber(i, scanStatistics);
-                var centroidStream = rawFile.GetCentroidStream(i, false);
-                double maxMass = 0;
-                double maxInt = 0;
-                string charge = "";//centroidStream.Charges[i].ToString();
-                logEntry = rawFile.GetTrailerExtraInformation(i);
-                for (var l = 0; l < logEntry.Length; l++) {
-                  if(logEntry.Labels[l]=="Charge State:"){charge=logEntry.Values[l];}
-                  //Console.WriteLine("{0}-{1}-{2}",l,logEntry.Labels[l],logEntry.Values[l]);
-                }
-                if (scanStatistics.IsCentroidScan)
-                {
-                    writeMS2.WriteLine("BEGIN IONS\nTITLE={0}\t{3}\tSCANS={2}\nRTINSECONDS={1}\nPEPMASS={6}\t{4}\t{5}\nCHARGE={7}+", i, time * 60, title, segmentedScan.Positions.Length, scanStatistics.BasePeakMass, scanStatistics.BasePeakIntensity, rawFile.GetScanEventForScanNumber(i).GetReaction(0).PrecursorMass,charge);
-                    for (int j = 0; j < segmentedScan.Positions.Length; j++) { writeMS2.WriteLine("{0} {1}", segmentedScan.Positions[j], segmentedScan.Intensities[j]); }
-                    writeMS2.WriteLine("END IONS\n");
-                }
-                else //profile?
-                {
-                  if (!title.Contains(" ms "))
-                  {
-                    writeMS2p.WriteLine("BEGIN IONS\nTITLE={0}\t{1}\tSCANS={2}\nRTINSECONDS={3}\nPEPMASS={4}\nCHARGE={5}+", i, title, centroidStream.Length, time * 60,  rawFile.GetScanEventForScanNumber(i).GetReaction(0).PrecursorMass,charge);
-                    for (int j = 0; j < centroidStream.Length; j++) { writeMS2p.WriteLine("{0} {1}", centroidStream.Masses[j], centroidStream.Intensities[j]); }
-                    writeMS2p.WriteLine("END IONS\n");
-                  }
-                  else //profile?
-                  {
-                    writeMS1.WriteLine("Scan{0}\tMZ\tcharge\tintensity\t{1}\t{2}", i, title, centroidStream.Length);
-                    for (int j = 0; j < centroidStream.Length; j++)
-                    {
-                        if (centroidStream.Charges[j] >= chgThr && centroidStream.Intensities[j] >= insThr)
-                        {
-                            writeMS1.WriteLine("{0}\t{1}\t{3}\t{2}\t{4}", j, centroidStream.Masses[j], centroidStream.Intensities[j], centroidStream.Charges[j], centroidStream.Masses[j] * centroidStream.Charges[j] - centroidStream.Charges[j]);
-                            tic += centroidStream.Intensities[j];
-                            tms++;
-                        }
-                        if (centroidStream.Intensities[j] >= maxInt) { maxInt = centroidStream.Intensities[j]; maxMass = centroidStream.Masses[j]; maxIntSum += maxInt; }
-                    }
-                  }
-                }
-                Console.WriteLine("{0}\t{8}\t{7}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}", i, maxIntSum, title, maxMass, time, maxInt, charge, scanStatistics.TIC, scanStatistics.BasePeakMass);
-                samples[i-1] = new Complex(maxMass,maxInt);
-            }
-            Fourier.Forward(samples, FourierOptions.NoScaling);
-            StreamWriter writeFFT = new StreamWriter(rawFile.FileName + ".intensity" + insThr + ".charge" + chgThr + "." + "FFT.txt");
-            writeFFT.WriteLine("mass\tintensity\tangle\tmagnitude");
-            for (int i = fMS-1; i < nMS; i++)
-            {
-                double magnitude = (2.0 / nMS) * (Math.Abs(Math.Sqrt(Math.Pow(samples[i].Real, 2) + Math.Pow(samples[i].Imaginary, 2))));
-                double angle = Math.Atan(samples[i].Imaginary / samples[i].Real);
-                writeFFT.WriteLine("{0}\t{1}\t{2}\t{3}", samples[i].Real, samples[i].Imaginary, angle, magnitude);
-            }
-            Console.WriteLine("#TIC>={0}intensity:\t{1}", insThr, tic);
-            Console.WriteLine("#Ions>=charge{0}:\t{1}", chgThr, tms);
-            rawFile.Dispose();
-            writeMS1.Close();
-            writeMS2.Close();
-            writeMZ.Close();
-            writeFFT.Close();
-            writeChromatogram.Close();
+﻿// RawRead: Thermo RAW reader targeting .NET 8 / ThermoFisher CommonCore 8.0.37
+// Build: dotnet build -c Release
+// Run:   dotnet bin/Release/net8.0/RawRead.dll <rawfile> [intensityThreshold] [chargeThreshold]
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Numerics;
+using MathNet.Numerics.IntegralTransforms;
+using ThermoFisher.CommonCore.Data.Business;
+using ThermoFisher.CommonCore.Data.Interfaces;
+using ThermoFisher.CommonCore.MassPrecisionEstimator;
+using ThermoFisher.CommonCore.RawFileReader;
+namespace RawRead;
+internal static class RawRead2PeakList {
+    static double D(string s) => double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
+    static int I(string s) => int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
+    static void Main(string[] args) {
+        if (args.Length < 1 || !File.Exists(args[0])) {
+            Console.WriteLine("USAGE: {0} fileName [intensityThreshold] [chargeThreshold]", AppDomain.CurrentDomain.FriendlyName);
+            return;
         }
+        double intensityThreshold = args.Length >= 2 ? D(args[1]) : 0;
+        int chargeThreshold = args.Length >= 3 ? I(args[2]) : 0;
+        var rawFile = RawFileReaderAdapter.FileFactory(args[0]);
+        if (!rawFile.IsOpen || rawFile.IsError || rawFile.InAcquisition) {
+            Console.WriteLine("Cannot open {0}: {1}", args[0], rawFile.FileError);
+            rawFile.Dispose();
+            return;
+        }
+        try {
+            rawFile.SelectInstrument(Device.MS, 1);
+            int firstScan = rawFile.RunHeaderEx.FirstSpectrum;
+            int lastScan = rawFile.RunHeaderEx.LastSpectrum;
+            if (lastScan < firstScan) { Console.WriteLine("Invalid scan range."); return; }
+            Console.WriteLine(
+                "#filename:\t{0}\n#prescan(s):\t{1}\n#RT length:\t{2}\n#version:\t{3}\n" +
+                "#create date:\t{4}\n#machine:\t{5}\n#serial:\t{6}\n#writer:\t{7}\n" +
+                "#resolution:\t{8}\n#massrange:\t{9}-{10}\n#sample:\t{11}\n" +
+                "#volume:\t{12}\n#injection:\t{13}\n#dilution:\t{14}\n#filter:\t{15}\n#filterN:\t{16}",
+                rawFile.FileName, lastScan, rawFile.RunHeaderEx.EndTime - rawFile.RunHeaderEx.StartTime,
+                rawFile.FileHeader.Revision, rawFile.FileHeader.CreationDate, rawFile.FileHeader.WhoCreatedId,
+                rawFile.GetInstrumentData().SerialNumber, rawFile.GetInstrumentData().SoftwareVersion,
+                rawFile.RunHeaderEx.MassResolution, rawFile.RunHeaderEx.LowMass, rawFile.RunHeaderEx.HighMass,
+                rawFile.SampleInformation.Vial, rawFile.SampleInformation.SampleVolume,
+                rawFile.SampleInformation.InjectionVolume, rawFile.SampleInformation.DilutionFactor,
+                rawFile.GetFilterForScanNumber(firstScan), rawFile.GetFilterForScanNumber(lastScan));
+            // mass precision
+            var firstScanData = Scan.FromFile(rawFile, firstScan);
+            var firstScanEvent = rawFile.GetScanEventForScanNumber(firstScan);
+            var logEntry = rawFile.GetTrailerExtraInformation(firstScan);
+            var headings = new List<string>(); var vals = new List<string>();
+            for (int i = 0; i < logEntry.Length; i++) { headings.Add(logEntry.Labels[i]); vals.Add(logEntry.Values[i]); }
+            IPrecisionEstimate pe = new PrecisionEstimate();
+            var ionTime = pe.GetIonTime(firstScanEvent.MassAnalyzer, firstScanData, headings, vals);
+            var mpResults = pe.GetMassPrecisionEstimate(firstScanData, firstScanEvent.MassAnalyzer, ionTime, rawFile.RunHeader.MassResolution);
+            using var writeMZ = new StreamWriter(rawFile.FileName + ".MZ.txt");
+            if (mpResults.Count > 0) {
+                writeMZ.WriteLine("Mass\tmmu\tppm\t");
+                foreach (var r in mpResults)
+                    writeMZ.WriteLine("{0:F5}\t{1:F3}\t{2:F2}", r.Mass, r.MassAccuracyInMmu, r.MassAccuracyInPpm);
+            }
+            // chromatogram
+            var chromData = rawFile.GetChromatogramData(
+                new IChromatogramSettings[] { new ChromatogramTraceSettings(TraceType.BasePeak) }, firstScan, lastScan);
+            var trace = ChromatogramSignal.FromChromatogramData(chromData);
+            using var writeChromatogram = new StreamWriter(rawFile.FileName + ".chromatogram.txt");
+            if (trace.Length > 0 && trace[0].Length > 0) {
+                writeChromatogram.WriteLine("BasePeak({0}points)\tRT\tIntensity", trace[0].Length);
+                for (int i = 0; i < trace[0].Length; i++)
+                    writeChromatogram.WriteLine("{0}\t{1:F3}\t{2:F0}", i, 60 * trace[0].Times[i], trace[0].Intensities[i]);
+            }
+            // per-scan
+            int scanCount = lastScan - firstScan + 1;
+            int ionsAboveThreshold = 0; double tic = 0;
+            // intensities[k] and scanTimes[k] hold the max-intensity and RT for scan k, used for FFT below
+            var intensities = new double[scanCount];
+            var scanTimes = new double[scanCount];
+            using var writeMS1 = new StreamWriter(rawFile.FileName + ".profile.intensity" + intensityThreshold + ".charge" + chargeThreshold + ".MS.txt");
+            using var writeMS2 = new StreamWriter(rawFile.FileName + ".centroid.MGF");
+            using var writeMS2Profile = new StreamWriter(rawFile.FileName + ".profile.MGF");
+            for (int scanNumber = firstScan; scanNumber <= lastScan; scanNumber++) {
+                double time = rawFile.RetentionTimeFromScanNumber(scanNumber);
+                string title = string.Join(Environment.NewLine, rawFile.GetScanEventForScanNumber(scanNumber));
+                var scanStats = rawFile.GetScanStatsForScanNumber(scanNumber);
+                var segScan = rawFile.GetSegmentedScanFromScanNumber(scanNumber, scanStats);
+                var centroid = rawFile.GetCentroidStream(scanNumber, false);
+                double maxMass = 0, maxIntensity = 0, maxIntensitySum = 0;
+                string charge = "";
+                var trailer = rawFile.GetTrailerExtraInformation(scanNumber);
+                for (int l = 0; l < trailer.Length; l++)
+                    if (trailer.Labels[l] == "Charge State:") charge = trailer.Values[l];
+                if (scanStats.IsCentroidScan) {
+                    double precursor = rawFile.GetScanEventForScanNumber(scanNumber).GetReaction(0).PrecursorMass;
+                    writeMS2.WriteLine("BEGIN IONS\nTITLE={0}\t{3}\tSCANS={2}\nRTINSECONDS={1}\nPEPMASS={6}\t{4}\t{5}\nCHARGE={7}+",
+                        scanNumber, time * 60, segScan.Positions.Length, title,
+                        scanStats.BasePeakMass, scanStats.BasePeakIntensity, precursor, charge);
+                    for (int j = 0; j < segScan.Positions.Length; j++)
+                        writeMS2.WriteLine("{0} {1}", segScan.Positions[j], segScan.Intensities[j]);
+                    writeMS2.WriteLine("END IONS\n");
+                } else if (!title.Contains(" ms ", StringComparison.Ordinal)) {
+                    double precursor = rawFile.GetScanEventForScanNumber(scanNumber).GetReaction(0).PrecursorMass;
+                    writeMS2Profile.WriteLine("BEGIN IONS\nTITLE={0}\t{1}\tSCANS={2}\nRTINSECONDS={3}\nPEPMASS={4}\nCHARGE={5}+",
+                        scanNumber, title, centroid.Length, time * 60, precursor, charge);
+                    for (int j = 0; j < centroid.Length; j++)
+                        writeMS2Profile.WriteLine("{0} {1}", centroid.Masses[j], centroid.Intensities[j]);
+                    writeMS2Profile.WriteLine("END IONS\n");
+                } else {
+                    writeMS1.WriteLine("Scan{0}\tMZ\tcharge\tintensity\t{1}\t{2}", scanNumber, title, centroid.Length);
+                    for (int j = 0; j < centroid.Length; j++) {
+                        double mass = centroid.Masses[j], intensity = centroid.Intensities[j];
+                        int z = (int)centroid.Charges[j];
+                        if (z >= chargeThreshold && intensity >= intensityThreshold) {
+                            writeMS1.WriteLine("{0}\t{1}\t{3}\t{2}\t{4}", j, mass, intensity, z, mass * z - z);
+                            tic += intensity; ionsAboveThreshold++;
+                        }
+                        if (intensity >= maxIntensity) { maxIntensity = intensity; maxMass = mass; maxIntensitySum += maxIntensity; }
+                    }
+                }
+                Console.WriteLine("{0}\t{8}\t{7}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}",
+                    scanNumber, maxIntensitySum, title, maxMass, time, maxIntensity, charge,
+                    scanStats.TIC, scanStats.BasePeakMass);
+                intensities[scanNumber - firstScan] = maxIntensity;
+                scanTimes[scanNumber - firstScan] = time;
+            }
+            // FFT of intensity-over-time: magnitude peak at bin k → periodic pattern every N/k scans
+            var avgDt = scanCount > 1 ? (scanTimes[scanCount - 1] - scanTimes[0]) / (scanCount - 1) : 1.0; // minutes per scan
+            var samples = new Complex[scanCount];
+            for (int i = 0; i < scanCount; i++) samples[i] = new Complex(intensities[i], 0);
+            Fourier.Forward(samples, FourierOptions.NoScaling);
+            using var writeFFT = new StreamWriter(rawFile.FileName + ".intensity" + intensityThreshold + ".charge" + chargeThreshold + ".FFT.txt");
+            writeFFT.WriteLine("bin\tfrequency_per_min\tperiod_min\tmagnitude");
+            for (int i = 0; i < scanCount / 2; i++) {
+                double mag = (2.0 / scanCount) * Math.Sqrt(samples[i].Real * samples[i].Real + samples[i].Imaginary * samples[i].Imaginary);
+                double freqPerMin = i / (scanCount * avgDt); // cycles per minute
+                double periodMin = i == 0 ? double.PositiveInfinity : 1.0 / freqPerMin;
+                writeFFT.WriteLine("{0}\t{1:F6}\t{2:F4}\t{3:F2}", i, freqPerMin, periodMin, mag);
+            }
+            Console.WriteLine("#TIC>={0}intensity:\t{1}", intensityThreshold, tic);
+            Console.WriteLine("#Ions>=charge{0}:\t{1}", chargeThreshold, ionsAboveThreshold);
+        } finally { rawFile.Dispose(); }
     }
 }
