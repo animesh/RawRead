@@ -4,6 +4,22 @@
 
 ## Quick start
 
+### Windows
+
+InstaOpen terminal with ctrl+R `cmd.exe` 
+
+```bash
+winget install --id Git.Git -e --source winget
+winget install Microsoft.DotNet.SDK.8
+git clone https://github.com/animesh/RawFileReader
+git clone https://github.com/animesh/RawRead
+cd RawRead
+dotnet build -c Release
+dotnet bin/Release/net8.0/RawRead.dll 171010_Ip_Hela_ugi.raw
+```
+
+### Linux
+
 ```bash
 wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
 bash dotnet-install.sh --channel 8.0 --install-dir "$PWD"
