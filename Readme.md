@@ -1,6 +1,6 @@
 # RawRead
 
-`RawRead.cs` contains the C# code for extraction of all info in raw file. This is an updated version of `RawRead.cs` using the .NET 8 assemblies distributed in the ThermoFisher `RawFileReader` repository. The [repository](https://github.com/thermofisherlsms/RawFileReader) and its [fork](https://github.com/animesh/RawFileReader/), contains the ThermoFisher CommonCore 8.0.37 packages under `Libs/NetCore/Net8/`. The project keeps the original RawRead functionality: RAW metadata, mass-precision output, base-peak chromatogram, centroid/profile MGF output, MS1 filtered peak output, and FFT output.
+`RawRead.cs` contains the C# code for extraction of all info in raw file. This is an updated version of `RawRead.cs` using the .NET 8 assemblies distributed in the ThermoFisher `RawFileReader` repository. The [repository](https://github.com/thermofisherlsms/RawFileReader) and its [fork](https://github.com/animesh/RawFileReader/), contains the ThermoFisher CommonCore 8.0.42  packages under `Libs/NetCore/Net8/`. The project keeps the original RawRead functionality: RAW metadata, mass-precision output, base-peak chromatogram, centroid/profile MGF output, MS1 filtered peak output, and FFT output.
 
 ## Quick start
 
