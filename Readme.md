@@ -84,7 +84,7 @@ Extracts charge from trailer labels by matching "Charge State:" — trailer labe
 Heuristic branches (e.g., title.Contains(" ms ")) determine some output formats; these heuristics may not be universal.
 Large files: the code keeps arrays sized by the number of scans and may use significant memory for very long runs.
 
-The ThermoFisher packages are version 8.0.37. The project uses MathNet.Numerics 5.0.0 for the FFT, which is compatible with .NET 8.
+The ThermoFisher packages are version 8.0.42. The project uses MathNet.Numerics 5.0.0 for the FFT, which is compatible with .NET 8.
 
 
 ## Build and Run with system-wide dotnet installation
@@ -107,11 +107,11 @@ The RAW reader itself is the ThermoFisher CommonCore implementation. No old Plan
 ## Important migration changes
 
 - Target framework changed from the old Mono/.NET Framework compilation model to `net8.0`.
-- ThermoFisher CommonCore packages changed to 8.0.37, matching the uploaded repository.
+- ThermoFisher CommonCore packages changed to 8.0.42, matching the uploaded repository.
 - The old command-line `mcs`/`csc` reference instructions were replaced with a `.csproj`.
 - The scan array is indexed relative to `FirstSpectrum`, rather than assuming the first scan is 1.
 - FFT phase uses `Atan2` rather than `Atan(imaginary / real)`.
 - Numeric command-line parsing uses invariant culture.
 - RAW acquisition/error handling was made explicit.
 
-The actual Thermo API calls used by RawRead remain the same APIs exposed by the 8.0.37 assemblies, including `RawFileReaderAdapter.FileFactory`, `GetSegmentedScanFromScanNumber`, `GetCentroidStream`, chromatogram access, and mass-precision estimation.
+The actual Thermo API calls used by RawRead remain the same APIs exposed by the 8.0.42 assemblies, including `RawFileReaderAdapter.FileFactory`, `GetSegmentedScanFromScanNumber`, `GetCentroidStream`, chromatogram access, and mass-precision estimation.

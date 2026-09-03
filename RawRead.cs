@@ -1,4 +1,4 @@
-﻿// RawRead: Thermo RAW reader targeting .NET 8 / ThermoFisher CommonCore 8.0.37
+﻿// RawRead: Thermo RAW reader targeting .NET 8 / ThermoFisher CommonCore 8.0.42
 // Build: dotnet build -c Release
 // Run:   dotnet bin/Release/net8.0/RawRead.dll <rawfile> [intensityThreshold] [chargeThreshold]
 using System;
