@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <WasmMainJSPath>main.js</WasmMainJSPath>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>RawReadBrowserWasm</AssemblyName>
+    <RootNamespace>RawReadBrowserWasm</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ThermoFisher.CommonCore.RawFileReader" Version="8.0.42" />
+    <PackageReference Include="ThermoFisher.CommonCore.Data" Version="8.0.42" />
+    <PackageReference Include="ThermoFisher.CommonCore.MassPrecisionEstimator" Version="8.0.42" />
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="reference\RawRead.cs" />
+    <WasmExtraFilesToDeploy Include="index.html" />
+    <WasmExtraFilesToDeploy Include="main.js" />
+  </ItemGroup>
+
+</Project>
